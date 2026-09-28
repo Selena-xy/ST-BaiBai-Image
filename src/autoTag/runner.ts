@@ -176,6 +176,30 @@ function planChangeOps(plan: ImagePlan): PositionedCharOp[] {
   return ops.sort((left, right) => left.sourceLine - right.sourceLine);
 }
 
+/**
+ * 是否强制「建档(changes 里 field:"new")必须携带 nl 外貌描述」。
+ *
+ * 三种情况不强制:
+ * - 单槽重写:本次 changes 会被丢弃,校验它只会白费重试次数。
+ * - anima 风格:那条链路不产出 char_captions,建档 nl 不再是协议必需。规范里仍建议给,
+ *   但把它当失败条件会把「模型没给 nl」升级成整次 tag 失败 —— 症状就是「一直不出提示词」。
+ * - 非 NAI / 非 4.5·V5 模型:原本就不适用。
+ * 其余(真 NAI 4.5/V5)沿用原有硬校验。
+ */
+export function requiresNewCharNl(opts: {
+  slot: boolean;
+  backend: string;
+  promptStyle: string;
+  model: string;
+}): boolean {
+  return (
+    !opts.slot &&
+    opts.backend === 'nai' &&
+    opts.promptStyle !== 'anima' &&
+    naiSupportsCharacterPrompts(opts.model)
+  );
+}
+
 async function runForFloor(floor: number, opts: RunOptions = {}): Promise<void> {
   const context = getContext();
   diagnostic('runForFloor:enter', {
@@ -343,12 +367,14 @@ async function runForFloor(floor: number, opts: RunOptions = {}): Promise<void> 
             promptOptions.minImages,
             promptOptions.maxImages,
           );
-          // 单槽重写忽略本次 changes,不校验建档 nl —— 校验它会为一份会被丢弃的
-          // changes 白白消耗重试次数。
+          const needsNl = requiresNewCharNl({
+            slot: Boolean(slot),
+            backend: settings.defaultBackend,
+            promptStyle: settings.nai.promptStyle,
+            model: settings.nai.model,
+          });
           if (
-            !slot &&
-            settings.defaultBackend === 'nai' &&
-            naiSupportsCharacterPrompts(settings.nai.model) &&
+            needsNl &&
             candidate.changes.some(change => change.field === 'new' && !change.nl?.trim())
           ) {
             throw new Error('NAI 4.5/V5 建档必须附带 nl 外貌描述');
