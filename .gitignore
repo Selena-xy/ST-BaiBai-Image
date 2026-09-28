@@ -1,0 +1,15 @@
+node_modules/
+*.log
+.DS_Store
+.preview/
+.preview/shot-*.png
+.claude
+.codex/
+.aionrs/
+CLAUDE.md
+.pnpm-store/
+AGENTS.md
+.pi/
+data/
+# pnpm 的本地构建许可占位文件(环境产物,非源码)
+pnpm-workspace.yaml
