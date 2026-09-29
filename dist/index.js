@@ -560,6 +560,8 @@ B. 角色清点与建档
    - 例外:角色整段剧情都维持同一 cos/伪装造型(假发 + 美瞳)时,hair 与 eyes 按**造型外观**写 ——
      这是每张图都要画的东西,留空会让模型每张自己随机;造型本身的身份 tag 按 C 段写进 fandom 字段、
      服装视觉指纹写进 outfit 字段。造型解除或更换的那一楼,hair、eyes、fandom、outfit 四格一起按正文更新。
+   - 顺带查库中条目的 outfit/body/extra:若出现 backless、cleavage、halterneck、see-through、big breasts、
+     lingerie 这类暴露向词,或与身份 tag 原设明显不符的服装描述,报一条 changes 把它们清成干净值。
 
 C. 服装时间线(每个在场角色一行:从 P 几起穿的是什么)
    - 按正文 P 位置维护临时服装:没明确穿着就合理决定一次;没有穿脱/换装/损坏/时间跳跃就沿用上一状态。
@@ -741,7 +743,8 @@ ${`7. 角色状态与 changes：${`
    ${E?"- 多人画面中，每个角色的发色、瞳色、体型、服装、物件和个人动作都必须放进各自的 characters[].tag，禁止放进 Base 或分配给其他角色。":"- 多人画面中，每个角色的发色、瞳色、体型、服装、物件和个人动作都必须使用该角色的区分性称谓邻接绑定，禁止把两人的外貌特征散放成无法归属的一串公共 tag。"}
    - 库中已有角色发生**永久外貌变化**（染发、剪发、留疤、长大、永久变身、固定造型改变等）时，必须通过 changes 报告：{"name":"角色名","field":"hair","value":"short red hair","position":"P4","reason":"在此处染发并剪短"}；field 只能是 sex/hair/eyes/skin/body/extra/outfit/fandom。
    - 已建档角色的 fandom 为空、而他被判定为同人**或**正穿戴着某个作品的可复用造型（cos、戏服、伪装）时，必须补一条 changes：{"name":"角色名","field":"fandom","value":"character name (copyright name)","position":"P2","reason":"补当前造型的身份 tag"}；档案已有 fandom 的直接照抄，不重复报告。卸下造型、换回本人身份的那一楼，同样报一条 changes 更新 fandom（本人是原创就置空串）。
-   - 已建档角色的 outfit 为空、而他整段剧情都维持同一 cos/伪装造型时，补一条 changes 把该造型的版型/剪裁与关键部件记进 outfit 字段。
+   - 已建档角色的 outfit 为空、而他整段剧情都维持同一 cos/伪装造型时，补一条 changes 把正文明确给出的造型部件记进 outfit 字段。
+   - 清理已污染档案：库中条目的 outfit/body/extra 里出现 backless、cleavage、halterneck、see-through、big breasts、lingerie 这类暴露向词，或与身份 tag 的原设明显不符的服装描述时，报一条 changes 把该字段改成干净值（field 取 outfit / body / extra），value 只留身份 tag 能带出的原设或正文明确给出的部件。
    - 库中带 [locked] 标记的角色是全局锁定档案：无论剧情如何发展，其固定外貌永不变化，**不得为其报告任何 changes**（报了也会被丢弃），画面中始终照抄锁定字段值。
    - 永久变化的 position 是新状态开始生效的位置：该位置之前的图片使用旧档案，该位置及之后使用新档案；多次变化按正文先后分别报告。
    - 假发、美瞳、湿身/污渍、临时发型、包扎、光照导致的颜色变化、姿势等临时状态不写 changes，但连续场景中仍须保持，直到正文明确解除或发生时间/场景跳跃。静态角色卡/世界书中的初始设定不得覆盖角色库里已经发生的后期变化。

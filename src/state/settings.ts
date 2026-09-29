@@ -1098,6 +1098,8 @@ B. 角色清点与建档
    - 例外:角色整段剧情都维持同一 cos/伪装造型(假发 + 美瞳)时,hair 与 eyes 按**造型外观**写 ——
      这是每张图都要画的东西,留空会让模型每张自己随机;造型本身的身份 tag 按 C 段写进 fandom 字段、
      服装视觉指纹写进 outfit 字段。造型解除或更换的那一楼,hair、eyes、fandom、outfit 四格一起按正文更新。
+   - 顺带查库中条目的 outfit/body/extra:若出现 backless、cleavage、halterneck、see-through、big breasts、
+     lingerie 这类暴露向词,或与身份 tag 原设明显不符的服装描述,报一条 changes 把它们清成干净值。
 
 C. 服装时间线(每个在场角色一行:从 P 几起穿的是什么)
    - 按正文 P 位置维护临时服装:没明确穿着就合理决定一次;没有穿脱/换装/损坏/时间跳跃就沿用上一状态。
