@@ -110,6 +110,7 @@ NAI 面板「默认参数」里新增下拉：
 - `Anima 单串` 下不再产出 `char_captions`（该网关没有区域绑定位，外貌写进主体反而更稳），也不再追加 NAI 官方质量词；`backendStatus().supportsCharacters` 同步报 false，避免第三方误以为该传 characters。
 - 新增 **nl 语言** 下拉（English / 中文）。Anima 主要以英文训练，默认 English。
 - 内置规范 `DEFAULT_ANIMA_SPEC` / `DEFAULT_ANIMA_THINKING` 按 Anima 官方文档编写：tag 与自然语言并用、`@` 画师前缀、权重语法有效（要比 SDXL 更高）、官方 tag 段序（质量/时间/安全 → 人数 → 角色 → 画师 → general）、`safe / sensitive / nsfw / explicit` 安全 tag 由模型按每张图的实际内容判定并写在首位。可在设置页「提示词」里覆盖。
+- **同人角色身份 tag** 按 Danbooru 实际 tag 名写：自带作品消歧的写括号形 `shorekeeper (wuthering waves)`；裸名的写角色名再补作品 tag `oomuro sakurako, oomuro-ke`。下划线换空格、连字符保留、**不用反斜杠转义括号**（那是 ComfyUI 的重量语法写法，Anima 不解析）。
 
 ### 2. 尺寸吸附
 
@@ -126,4 +127,13 @@ NAI 面板新增 **尺寸吸附** 开关（仅 Anima 风格生效，默认开）
 - `src/backends/nai.ts` — 质量词策略、`snapGatewayAspect()` 尺寸吸附、`char_captions` 在 Anima 风格下留空
 - `src/generate.ts` — `supportsCharacters` 与风格保持一致
 - `src/pages/backend/panels/NaiPanel.vue`、`src/pages/settings/index.vue` — 面板控件与规范编辑入口
-- 另加 5 条回归测试（`src/backends/nai.test.ts`、`src/autoTag/prompt.test.ts`）
+- 另加回归测试（`src/autoTag/runner.test.ts`、`src/backends/nai.test.ts`、`src/autoTag/prompt.test.ts`）
+
+### 已修复的坑
+
+改动过程中踩过的，记在这儿避免回归：
+
+- **Anima 风格下建档 nl 被硬校验卡死**：`runner.ts` 那道「建档必须带 nl」的校验原来只看模型、没看提示词风格。Anima 链路不发 `char_captions`，规范也没强制 nl，模型就不给——校验却仍然拦，把「没给 nl」升级成整次 tag 失败，症状是**一直不出提示词**（而原版 NAI 一切正常）。现按风格分叉，并抽成 `requiresNewCharNl()` 加了回归锁。
+- **Anima 风格错误继承了 ComfyUI 的括号转义要求**：共用协议里那条「同人身份 tag 按 ComfyUI 规范现场判定并按规范转义括号」在 Anima 下仍然生效，与规范的「不要转义」直接对撞——身份 tag 时有时无，形态在 `\( \)` 与 `( )` 之间跳。现按风格三分支，Anima 明确不转义。
+- **Anima 思维链漏了「原创/同人判定」**：NAI 与 ComfyUI 两份都有这一条，Anima 这份漏写，模型在思考阶段压根不判同人，同人身份 tag 自然不出。已补进 B 段与槽位块。
+- **尺寸吸附**：该类网关按宽高比吸附到三档，`1536×1152`（比 1.333）差之毫厘被判给方图，「配了宽图却一直只拿到 1024×1024」。开启吸附后本地先换算，面板填的与实际拿到的才对得上。
