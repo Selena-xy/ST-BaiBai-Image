@@ -725,7 +725,10 @@ async function confirmUpdate() {
             @change="normalizeAutoTagNumbers('maxImages')"
           />
         </label>
-        <p class="bbi-field-hint">最少设为 0 时允许不出图;最多数量始终受插件硬限制。</p>
+        <p class="bbi-field-hint">
+          最少设为 0 时由 AI 自行判断,可能只出一张或不出图;填上具体数字(如 2)才是硬要求 ——
+          AI 给不够会被判为不合格并自动重试补足。最多数量始终受插件硬限制。
+        </p>
 
         <label class="bbi-num-row">
           <span class="bbi-field-label">失败自动重试次数</span>
