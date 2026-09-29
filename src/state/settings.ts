@@ -983,7 +983,7 @@ tag(JSON 的 tag 键):英文小写、逗号分隔,用空格代替下划线(仅 s
   ✔ white dress on black hair girl, red dress on silver hair girl, black hair girl smiling, cute
   ✘ girl with two-tone hair and light blue to silver long hair and blue eyes and fair skin and slender
     and butterfly hair ornament wearing blue and white asymmetrical dress and dark blue waist ribbon
-  长句会把人数(`1boy 1girl`、`2girls`)这类关键 tag 稀释掉,模型就更容易多画或少画人;
+  长句会把人数(1boy 1girl、2girls)这类关键 tag 稀释掉,模型就更容易多画或少画人;
   它还挤占提示词预算、让整串无法阅读与手改。
 - **同一个概念只写一次**:身份、服装、动作、表情都不要换个说法重复一遍
   (例如既写 shorekeeper (wuthering waves) 又写 shorekeeper cosplay、(cosplay) 与 cosplay 并列);
