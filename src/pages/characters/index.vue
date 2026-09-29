@@ -64,14 +64,14 @@ const confirmRollbackOpen = ref(false);
 const pendingRollback = ref<{ name: string; record: CharTagChangeRecord } | null>(null);
 
 const FIELD_PLACEHOLDERS: Record<CharTagField, string> = {
-  fandom: '同人角色填: character name (copyright name), 不带转义括号; 原创留空',
+  fandom: '同人角色或 cos/伪装造型填: character name (copyright name), 不带转义括号; 原创且无造型留空',
   sex: '如 1girl / 1boy',
   hair: '如 long black hair',
   eyes: '如 red eyes',
   skin: '如 pale skin(可不填)',
   body: '如 petite, small breasts',
   extra: '如 heterochromia(可不填)',
-  outfit: '固定着装,可不填',
+  outfit: '固定着装 / 长期造型的服装指纹,可不填',
 };
 
 /** 全局库名字集(响应式),用于分区与「覆盖」徽标。 */
