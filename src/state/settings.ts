@@ -978,6 +978,13 @@ tag(JSON 的 tag 键):英文小写、逗号分隔,用空格代替下划线(仅 s
   它属于官方 tag 序列的第一段,不得省略。
 - 权重语法**有效**:(tag:权重),如 (chibi:2)。Anima 需要比 SDXL 更高的权重,想要明显效果一般给 1.5 以上。
 - 画师 tag 必须带 @ 前缀(如 @nnn yryr);不加 @ 效果会很弱。画师串已由固定正面提供,你不要再写。
+- **每个 tag 都保持短词形态:1–4 个词,逗号分隔**。禁止用 and / with / wearing / looking 把多个特征
+  串成一条长句。角色特征用「短 tag + 归属」表达,示例对错分明:
+  ✔ white dress on black hair girl, red dress on silver hair girl, black hair girl smiling, cute
+  ✘ girl with two-tone hair and light blue to silver long hair and blue eyes and fair skin and slender
+    and butterfly hair ornament wearing blue and white asymmetrical dress and dark blue waist ribbon
+  长句会把人数(`1boy 1girl`、`2girls`)这类关键 tag 稀释掉,模型就更容易多画或少画人;
+  它还挤占提示词预算、让整串无法阅读与手改。
 - **同一个概念只写一次**:身份、服装、动作、表情都不要换个说法重复一遍
   (例如既写 shorekeeper (wuthering waves) 又写 shorekeeper cosplay、(cosplay) 与 cosplay 并列);
   tag 串整体控制在 30 个以内,写满不如写准。
@@ -1011,6 +1018,7 @@ nl(JSON 的 nl 键):用连贯的自然语言把这一格写清楚,与 tag 互补
 - 每个角色在 nl 里单独交代:位置、外貌、服装、动作、表情、视线各写清楚,不要混成一句。
 - tag 里角色各自的服装/动作/表情必须绑到该角色的特征词上(white dress on black hair girl 这种写法),
   不要裸写一堆积件让模型自己分配——裸写会把特征随机安到某人头上,或让两人互相串味。
+  **绑定也要保持成一条条短 tag**,不要把一个人从头到脚串成一句(见上文「每个 tag 保持短词形态」)。
 - 多人共有的特征只写一次(两人都是长发就只写一个 long hair)。
 
 画面补全(重要):正文是小说,不是分镜脚本——它不会写镜头、光线、时代服饰这些「画出来才存在」的东西。
@@ -1104,6 +1112,9 @@ E. 选段
 
 槽位要求:
    - 每个槽位只写最终取值,一次定死。不写带问号的自问、不并列候选、不写完再推翻。
+   - 落 tag 时每个 tag 保持 **1–4 个词**的短形态,逗号分隔;禁止用 and / with / wearing / looking
+     把角色特征串成一条长句。人数 tag(1boy 1girl / 2girls)必须干净独立地出现在前面,
+     不要被长句稀释 —— 它是唯一能压住「多画一个人」的信号。
    - 表情与视线必须从后端规范给出的标准 danbooru 词里挑,不得自创词组,两项都不留空;
      多人画面每人各写一份,落 tag 时各自绑定,不得合并或裸写。
    - 角色行每个在场角色各一行,配角也要写全。每行的表情与视线都必须是独立的英文词,
@@ -1118,6 +1129,7 @@ E. 选段
    - 每个在场角色在 tag 与 nl 里是不是都落到了自己的外貌、服装、动作、表情与视线?
    - 人数与画面内可见人数一致?景别完整容纳核心接触点?size 与景别一致(拿不准写 portrait)?
    - 安全 tag 选对了吗?按本图内容在 safe / sensitive / nsfw / explicit 里四选一,且写在 tag 第一位。
+   - tag 里有没有用 and / with / wearing 串成的长句?人数 tag 是不是干净独立、没被长句淹没?
    - 场上的同人角色,身份 tag 写进 tag 了没有?形态对不对(括号形 shorekeeper (wuthering waves);
      裸名则角色名+作品 tag),有没有误加反斜杠?
    - tag 里有没有换个说法把同一个概念写了两遍?画幅方向有没有混进 tag 串?
