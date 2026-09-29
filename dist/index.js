@@ -483,8 +483,9 @@ nl(JSON 的 nl 键):用连贯的自然语言把这一格写清楚,与 tag 互补
   它是**当前造型**的身份,不是角色本人的出身:造型解除或更换的那一楼,必须用一条 changes
   更新该角色的 fandom(换造型就改写,卸下造型且本人是原创就清空成空串)。
   有作品归属的造型不要另行描述服装 —— 身份 tag 本身就会带出该作品的原设服装,凭空加词只会让它走形。
-  尤其禁止把 backless、cleavage、halterneck、see-through、big breasts、lingerie 这类暴露向词写进档案的
-  任何字段:档案每楼照抄,写进去之后整套造型在每一张图里都变成那样,正文没要求也叫不回来。
+  尤其禁止把暴露向词(backless、cleavage、halterneck、see-through、lingerie)与胸部尺寸词
+  (big breasts、large breasts、huge breasts、gigantic breasts、flat chest、busty)写进档案的任何字段:
+  档案每楼照抄,写进去之后每张图都变成那样,正文没要求也叫不回来。
   只有正文明确给出的部件(雨披、外套、破损、湿透、换上的配件)才按临时状态画进画面,不进档案。
 - 原创角色不要自造英文名,也不要写孤立的中文名或拼音——直接用外貌描述与位置称谓区分即可。
 - 建档(changes 里 field:"new")时,除 hair/eyes 等字段外,顺带给一句英文 nl 简述该角色的固定外貌,
@@ -560,8 +561,9 @@ B. 角色清点与建档
    - 例外:角色整段剧情都维持同一 cos/伪装造型(假发 + 美瞳)时,hair 与 eyes 按**造型外观**写 ——
      这是每张图都要画的东西,留空会让模型每张自己随机;造型本身的身份 tag 按 C 段写进 fandom 字段、
      服装视觉指纹写进 outfit 字段。造型解除或更换的那一楼,hair、eyes、fandom、outfit 四格一起按正文更新。
-   - 顺带查库中条目的 outfit/body/extra:若出现 backless、cleavage、halterneck、see-through、big breasts、
-     lingerie 这类暴露向词,或与身份 tag 原设明显不符的服装描述,报一条 changes 把它们清成干净值。
+   - 顺带查库中条目的 outfit/body/extra:若出现暴露向词(backless、cleavage、halterneck、see-through、
+     lingerie)或胸部尺寸词(big breasts、large breasts、huge breasts、gigantic breasts、flat chest、busty),
+     或与身份 tag 原设明显不符的服装描述,报一条 changes 把它们清成干净值。
 
 C. 服装时间线(每个在场角色一行:从 P 几起穿的是什么)
    - 按正文 P 位置维护临时服装:没明确穿着就合理决定一次;没有穿脱/换装/损坏/时间跳跃就沿用上一状态。
@@ -570,8 +572,9 @@ C. 服装时间线(每个在场角色一行:从 P 几起穿的是什么)
    - 造型对应某个已有作品(cos、戏服、伪装成某角色)时,该造型的身份 tag(shorekeeper (wuthering waves)
      这种括号形态)按 B 段写进该角色的 fandom 字段;服装以上述身份 tag 带出的原设为基准,
      outfit 只记正文明确给出的部件(外套、配件、破损),不要自行描述版型与暴露程度,
-     尤其不得写 backless、cleavage、halterneck、see-through、big breasts、lingerie 这类词 ——
-     它们会被逐楼照抄,把整套造型在每张图里都推向暴露。
+     尤其不得写暴露向词(backless、cleavage、halterneck、see-through、lingerie)与胸部尺寸词
+     (big breasts、large breasts、huge breasts、gigantic breasts、flat chest、busty) ——
+     它们会被逐楼照抄,把整套造型在每张图里都推向暴露或固定成某个尺寸。
      造型解除或更换时,在生效的那一楼用 changes 同时更新该角色的 fandom 与 outfit。
 
 D. 时代与世界观(一次判断,全楼通用)
@@ -731,7 +734,7 @@ ${`7. 角色状态与 changes：${`
    - **建档资格与入画资格是两回事**：不建档只表示他不进角色库，不表示他不能入画；已建档也不表示他必须入画。先按本图的主体和核心互动取景，再为镜头内的人写外貌，不按档案状态决定取舍。无名角色若是核心互动的参与者，照常入画，不得仅因缺档案放弃画面、改选瞬间或裁掉他；仅仅在场不构成入画理由，无关在场者可以留在镜头外。
    - “已建档”只能按【角色固定外貌库】区块中的同名条目判断：只有名字实际列在该区块中才算已建档；世界书、角色卡、柏宝书或正文里的详细设定只是建档依据，绝不等于已经在库。每个在场正式角色必须二选一：指出库中的同名条目，或在 changes 中输出 field:"new"。一次性无名角色不在这条二选一之内：他既不建档也不写 changes，不需要指出任何库条目，缺档案是正常状态而非遗漏。
    - 建档写法：{"name":"角色名","field":"new","fields":{"sex":"1girl","hair":"long black hair","eyes":"blue eyes"},"position":"P2","reason":"首次出场建档"}；position 填他首次出现的位置，仅作记录——建档在本楼全程有效，本楼任意位置的图片都可以立即使用这套外貌。
-   - 建档字段只放**长期不变的身体特征**：sex/hair/eyes/skin/body/extra 填性别、发色发型、瞳色、肤色、体型、标志特征；outfit 只填该角色**固定不换的招牌着装**；角色整段剧情都维持同一 cos/伪装造型时，这一格只记正文明确给出的部件（外套、配件、破损），服装本体交给 fandom 的身份 tag 带出，**不要自行描述版型，更不要写 backless、cleavage、halterneck、see-through、big breasts、lingerie 这类暴露向词**——档案每楼照抄，写进去之后每张图都会变成那样；判定为同人角色，**或角色正穿戴着某个作品的可复用造型（cos、戏服、伪装）**时，fields 里必须写 fandom（模型可识别的英文 Danbooru 身份 tag，格式 character name (copyright name)）——造型的身份 tag 就是造型像的那个角色；原创角色且没有造型时不写 fandom。动作、姿势、所在场景、临时状态（lying on carpet、standing、sitting、unzipped、湿身、伤势等）一律不得写进任何字段——档案会在他之后每一张图里被照抄，把姿势写进去会让他在所有画面里都保持那个姿势。
+   - 建档字段只放**长期不变的身体特征**：sex/hair/eyes/skin/body/extra 填性别、发色发型、瞳色、肤色、体型、标志特征；outfit 只填该角色**固定不换的招牌着装**；角色整段剧情都维持同一 cos/伪装造型时，这一格只记正文明确给出的部件（外套、配件、破损），服装本体交给 fandom 的身份 tag 带出，**不要自行描述版型，更不要写暴露向词（backless、cleavage、halterneck、see-through、lingerie）或胸部尺寸词（big breasts、large breasts、huge breasts、gigantic breasts、flat chest、busty）**——它们分别会污染 outfit 与 body 字段，而档案每楼照抄，写进去之后每张图都会变成那样；判定为同人角色，**或角色正穿戴着某个作品的可复用造型（cos、戏服、伪装）**时，fields 里必须写 fandom（模型可识别的英文 Danbooru 身份 tag，格式 character name (copyright name)）——造型的身份 tag 就是造型像的那个角色；原创角色且没有造型时不写 fandom。动作、姿势、所在场景、临时状态（lying on carpet、standing、sitting、unzipped、湿身、伤势等）一律不得写进任何字段——档案会在他之后每一张图里被照抄，把姿势写进去会让他在所有画面里都保持那个姿势。
    - 建档取值优先级：目标正文明确的当前外貌 > 柏宝书当前角色状态 > 角色卡/世界书明确人设 > 合理补全。人设明确写了颜色时必须原样转换，不得擅改；hair 与 eyes 必填，hair 至少包含发色和长度/发型，eyes 必须包含瞳色，缺任一项该条建档会被丢弃。角色整段剧情都处于同一 cos/伪装造型（假发 + 美瞳）时，hair 与 eyes 取**该造型的外观**写全，不要留空——每张图都要画它；该造型的身份 tag 与服装视觉指纹写进 outfit 字段（见下文），造型解除或更换的那一楼三格一起更新。
    - 如果设定没写发色、发型或瞳色，根据世界观、种族、身份、性格和其余角色设定补出简洁、协调、可长期复用的颜色与发型；这是一次性建档决定，后续不得重新随机。
    - 建完档就直接用：同一次输出里，先在 changes 里确立该角色的固定外貌，再在图片 ${E?"characters[].tag":"tag"} 中照抄这套外貌，并围绕它补充服装、动作、场景等其余 tag；同一张图里这套外貌只写一遍。${E?`
@@ -744,7 +747,7 @@ ${`7. 角色状态与 changes：${`
    - 库中已有角色发生**永久外貌变化**（染发、剪发、留疤、长大、永久变身、固定造型改变等）时，必须通过 changes 报告：{"name":"角色名","field":"hair","value":"short red hair","position":"P4","reason":"在此处染发并剪短"}；field 只能是 sex/hair/eyes/skin/body/extra/outfit/fandom。
    - 已建档角色的 fandom 为空、而他被判定为同人**或**正穿戴着某个作品的可复用造型（cos、戏服、伪装）时，必须补一条 changes：{"name":"角色名","field":"fandom","value":"character name (copyright name)","position":"P2","reason":"补当前造型的身份 tag"}；档案已有 fandom 的直接照抄，不重复报告。卸下造型、换回本人身份的那一楼，同样报一条 changes 更新 fandom（本人是原创就置空串）。
    - 已建档角色的 outfit 为空、而他整段剧情都维持同一 cos/伪装造型时，补一条 changes 把正文明确给出的造型部件记进 outfit 字段。
-   - 清理已污染档案：库中条目的 outfit/body/extra 里出现 backless、cleavage、halterneck、see-through、big breasts、lingerie 这类暴露向词，或与身份 tag 的原设明显不符的服装描述时，报一条 changes 把该字段改成干净值（field 取 outfit / body / extra），value 只留身份 tag 能带出的原设或正文明确给出的部件。
+   - 清理已污染档案：库中条目的 outfit/body/extra 里出现暴露向词（backless、cleavage、halterneck、see-through、lingerie）或胸部尺寸词（big breasts、large breasts、huge breasts、gigantic breasts、flat chest、busty），或与身份 tag 的原设明显不符的服装描述时，报一条 changes 把该字段改成干净值（field 取 outfit / body / extra），value 只留身份 tag 能带出的原设或正文明确给出的部件。
    - 库中带 [locked] 标记的角色是全局锁定档案：无论剧情如何发展，其固定外貌永不变化，**不得为其报告任何 changes**（报了也会被丢弃），画面中始终照抄锁定字段值。
    - 永久变化的 position 是新状态开始生效的位置：该位置之前的图片使用旧档案，该位置及之后使用新档案；多次变化按正文先后分别报告。
    - 假发、美瞳、湿身/污渍、临时发型、包扎、光照导致的颜色变化、姿势等临时状态不写 changes，但连续场景中仍须保持，直到正文明确解除或发生时间/场景跳跃。静态角色卡/世界书中的初始设定不得覆盖角色库里已经发生的后期变化。
