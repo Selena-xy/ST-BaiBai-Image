@@ -1,5 +1,5 @@
 > **本仓库是衍生版（个人分支）**，基于 [baibai-git/ST-BaiBai-Image](https://github.com/baibai-git/ST-BaiBai-Image)（原作者：柏柏）。
-> 本分支只追加了两项改动：**Anima 提示词风格**与**尺寸吸附**，供本人多设备安装使用；
+> 本分支在原有基础上追加三项改动：**Anima 提示词风格**、**尺寸吸附**、**角色库的造型身份 tag 归属**，供本人多设备安装使用；
 > 原有功能与原作者署名全部保留。改动详情见文末「本分支的改动」。
 
 # 柏宝绘 · SillyTavern 剧情配图助手
@@ -124,13 +124,27 @@ NAI 面板「默认参数」里新增下拉：
 
 NAI 面板新增 **尺寸吸附** 开关（仅 Anima 风格生效，默认开）。开启后本地先吸附，面板里填的尺寸与实际拿到的才对得上。官方 NAI 支持任意 64 倍数尺寸，故该开关对 `NAI 原生` 风格不生效。
 
+### 3. 角色库：cos / 伪装造型的身份 tag 归属
+
+原版把 `fandom` 当作「角色本人所属作品」，于是**路人 cos 某个角色**这种情形没有归属：规范判他是原创、不写 `fandom`，而造型的服装又不算「固定不换的招牌着装」，也进不了 `outfit` —— 结果身份 tag 和整套造型每一层都要模型从上下文重新猜，跨楼层必然漂。
+
+本分支把它落定：
+
+- **造型身份 tag 写进档案的 `fandom`**（「角色管理」页上那一格就叫「同人身份 tag」）：造型像谁就写谁，如 `shorekeeper (wuthering waves)`、`raiden shogun (genshin impact)`。它是**当前造型**的身份，不是角色本人的出身；造型解除或更换的那一楼报 changes 改写，本人是原创则清空。
+- `outfit` 只记正文明确给出的部件（外套、配件、破损），**服装本体交给身份 tag 带出**。
+- 已建档但 `fandom` 为空、而角色当前正穿着 cos / 伪装造型的，下一楼自动补一条 `field:"fandom"` 的 changes（旧档不用手工改）。
+- 假发例外：整段剧情维持同一造型时，`hair` / `eyes` 按造型外观写（留空会让模型每张自己随机），造型解除的那一楼四格一起更新。
+
+配套**禁用表**，防止造型被永久绑定：`backless`、`cleavage`、`halterneck`、`see-through`、`lingerie` 这类暴露向词，与 `big breasts`、`large breasts`、`huge breasts`、`gigantic breasts`、`flat chest`、`busty` 这类胸部尺寸词，**一律不得写进档案任何字段**；发现旧档里已带这些词时，报一条 changes 自动清成干净值。
+
 ### 改动文件一览
 
-- `src/state/settings.ts` — 三个新字段（`promptStyle` / `nlLanguage` / `sizeSnap`）+ 两套 Anima 规范常量
-- `src/autoTag/prompt.ts` — 规范与思维链按风格分叉；Anima 风格退回单串、`nl` 恒开、示例带安全 tag
+- `src/state/settings.ts` — 三个新字段（`promptStyle` / `nlLanguage` / `sizeSnap`）+ 两套 Anima 规范常量（含造型身份 tag 条款与禁用表）
+- `src/autoTag/prompt.ts` — 规范与思维链按风格分叉；Anima 风格退回单串、`nl` 恒开、示例带安全 tag；建档字段规则与 changes 规则补造型归属、补档与旧档清理
 - `src/backends/nai.ts` — 质量词策略、`snapGatewayAspect()` 尺寸吸附、`char_captions` 在 Anima 风格下留空
 - `src/generate.ts` — `supportsCharacters` 与风格保持一致
 - `src/pages/backend/panels/NaiPanel.vue`、`src/pages/settings/index.vue` — 面板控件与规范编辑入口
+- `src/pages/characters/index.vue` — 角色管理页 `fandom` / `outfit` 两格的占位提示与实际用法对齐
 - 另加回归测试（`src/autoTag/runner.test.ts`、`src/backends/nai.test.ts`、`src/autoTag/prompt.test.ts`）
 
 ### 已修复的坑
@@ -141,3 +155,5 @@ NAI 面板新增 **尺寸吸附** 开关（仅 Anima 风格生效，默认开）
 - **Anima 风格错误继承了 ComfyUI 的括号转义要求**：共用协议里那条「同人身份 tag 按 ComfyUI 规范现场判定并按规范转义括号」在 Anima 下仍然生效，与规范的「不要转义」直接对撞——身份 tag 时有时无，形态在 `\( \)` 与 `( )` 之间跳。现按风格三分支，Anima 明确不转义。
 - **Anima 思维链漏了「原创/同人判定」**：NAI 与 ComfyUI 两份都有这一条，Anima 这份漏写，模型在思考阶段压根不判同人，同人身份 tag 自然不出。已补进 B 段与槽位块。
 - **尺寸吸附**：该类网关按宽高比吸附到三档，`1536×1152`（比 1.333）差之毫厘被判给方图，「配了宽图却一直只拿到 1024×1024」。开启吸附后本地先换算，面板填的与实际拿到的才对得上。
+- **cos 造型的身份 tag 没有归属**：见上文第 3 项。症状是「角色管理页的同人身份 tag 一直是空的，下一楼的图和上一楼对不上」——身份 tag 与造型服装每层都要模型重新猜，跨楼层必然漂。
+- **模型自造的服装词进了固定档案**：`outfit` 里被写进 `halterneck, backless dress, black corset`、`body` 里被写进 `large breasts`。这些词逐楼照抄，实测把一个正常造型一路推向深 V 露背，而正文里一句露背都没写。现改为：有作品归属的造型不再让模型自造服装，身份 tag 自己带出原设，并加禁用表与旧档自动清理。
