@@ -459,9 +459,13 @@ nl(JSON 的 nl 键):用连贯的自然语言把这一格写清楚,与 tag 互补
 - 出现在【角色固定外貌库】里的角色,把库中字段值照抄进 tag 与 nl,用词一字不改
   (库里写 long black hair 就写 long black hair,不要换成 black long hair 或自行加词)。
 - **每个出场角色都必须有配套的外貌描述**——只写名字不写外貌会让模型混淆,多人时尤其明显。
-- 同人角色:在人数之后写模型可识别的英文 Danbooru 身份 tag,角色名与作品名依次写出
-  (如 oomuro sakurako, yuru yuri),再写该角色的外貌/服装/动作;身份同时写进档案的 fandom 字段。
-  作品名不确定时按原创处理,不猜。
+- 同人角色:在人数之后写该角色在 Danbooru 上的**实际身份 tag**,再写该角色的外貌/服装/动作;
+  身份同时写进档案的 fandom 字段。形态以 Danbooru 实际 tag 名为准:
+  · 自带作品消歧的照写括号形态 —— shorekeeper (wuthering waves)(作品名不拆开);
+  · 不带括号的裸名则在它后面补一个作品 tag —— oomuro sakurako, oomuro-ke。
+  原形里的下划线换成空格,连字符保留(oomuro-ke 不写成 oomuro ke);不得自造、不得音译。
+  **不要用反斜杠转义圆括号** —— 那是 ComfyUI 的重量语法写法,Anima 不解析,
+  反斜杠只会原样进入语义。作品名不确定时按原创处理,不猜。
 - 原创角色不要自造英文名,也不要写孤立的中文名或拼音——直接用外貌描述与位置称谓区分即可。
 - 建档(changes 里 field:"new")时,除 hair/eyes 等字段外,顺带给一句英文 nl 简述该角色的固定外貌,
   供角色库与后续楼层作参考(本链路不把它当 char_caption 发出,但有它档案才完整)。
@@ -523,6 +527,11 @@ B. 角色清点与建档
    - 库里没有、但属于正式角色(有设定或持续参与剧情)的,首次出场就建档,不论是否入画;一次性无名路人不建。
    - 缺发色/发型/瞳色时一次性补全:hair 必须同时带颜色与长度/发型,eyes 必须带瞳色;
      建档在本楼全程有效,不要给同一角色两套外貌。
+   - 同一行顺带判定原创还是同人:只有角色卡、世界书、正文或通行角色名能可靠指向某个已有作品时才判为同人,
+     证据不足按原创处理,不猜。判定为同人时,同一行定出模型可识别的英文 Danbooru 身份 tag:
+     自带作品消歧的写括号形态(shorekeeper (wuthering waves)),裸名的写角色名并另补作品 tag
+     (oomuro sakurako, oomuro-ke);下划线换空格、连字符保留、**不要反斜杠转义括号**。
+     该身份同时写进建档的 fandom 字段。
    - 永久变化(染发、剪发、留疤、永久变身等)写入 changes 并标出生效 P编号;
      假发、美瞳、湿发、光照变色等临时状态不写。
 
@@ -686,7 +695,8 @@ ${`7. 角色状态与 changes：${`
    - 如果设定没写发色、发型或瞳色，根据世界观、种族、身份、性格和其余角色设定补出简洁、协调、可长期复用的颜色与发型；这是一次性建档决定，后续不得重新随机。
    - 建完档就直接用：同一次输出里，先在 changes 里确立该角色的固定外貌，再在图片 ${E?"characters[].tag":"tag"} 中照抄这套外貌，并围绕它补充服装、动作、场景等其余 tag；同一张图里这套外貌只写一遍。${E?`
    - NAI V5 profile requirement: every field:"new" change must include a non-empty nl containing a concise English natural-language description of the character fixed appearance. The name must be the character exact name from the card/lorebook/story — a Chinese name stays Chinese (小雪), never pinyin or translation. Fandom characters must also include their identity tag in fields.fandom, e.g. {"name":"冬海","field":"new","fields":{"sex":"1girl","hair":"long black hair","eyes":"blue eyes","fandom":"kasumi (blue archive)"},"nl":"A girl with long black hair and blue eyes.","position":"P2","reason":"first appearance"}; original characters omit fandom. If an existing library entry lacks fandom but the character is fandom, report a changes item with field:"fandom". Describe only fixed appearance: no current outfit, pose, or location — temporary states never enter the profile.`:""}`}
-   ${E?"- If a visible character exists in the fixed appearance library or is created in this changes array, copy the fixed fields into that character own characters[].tag; keep appearance wording verbatim but convert 1girl/1boy to girl/boy. The fandom identity tag (fields.fandom) goes first, verbatim. Do not put them in Base or assign them to another character. Library natural-language notes may inform that character nl. Use the library entry name verbatim for characters[].name and for any name inside tag/nl — never transliterate, translate, or vary it.":`- 画面中的角色只要已在【角色固定外貌库】，或在本次 changes 中建了档，tag 与 nl 就必须照抄库中/刚建档的字段值，用词一字不改，不得自行改写或增删其固定外貌。fandom 字段只作档案记录，ComfyUI 画图时不照抄它，同人身份 tag 按下发的 ComfyUI 规范现场判定并按规范转义括号。
+   ${E?"- If a visible character exists in the fixed appearance library or is created in this changes array, copy the fixed fields into that character own characters[].tag; keep appearance wording verbatim but convert 1girl/1boy to girl/boy. The fandom identity tag (fields.fandom) goes first, verbatim. Do not put them in Base or assign them to another character. Library natural-language notes may inform that character nl. Use the library entry name verbatim for characters[].name and for any name inside tag/nl — never transliterate, translate, or vary it.":_?`- 画面中的角色只要已在【角色固定外貌库】，或在本次 changes 中建了档，tag 与 nl 就必须照抄库中/刚建档的字段值，用词一字不改，不得自行改写或增删其固定外貌。同人角色的 fandom 身份 tag 照抄进 tag 的人数之后，**不要用反斜杠转义圆括号**——Anima 不解析括号权重，反斜杠只会原样进入语义。
+   - 同一角色的固定外貌在一张图里只写一遍：同一图内再次提到他时用简短指代（the boy、the silver-haired girl）承接，禁止把整串外貌重复第二遍——重复会让模型以为画面里有多个同样的人，把一个人画成互不相连的几块。`:`- 画面中的角色只要已在【角色固定外貌库】，或在本次 changes 中建了档，tag 与 nl 就必须照抄库中/刚建档的字段值，用词一字不改，不得自行改写或增删其固定外貌。fandom 字段只作档案记录，ComfyUI 画图时不照抄它，同人身份 tag 按下发的 ComfyUI 规范现场判定并按规范转义括号。
    - 同一角色的固定外貌在一张图里只写一遍：同一图内再次提到他时用简短指代（the boy、the silver-haired girl）承接，禁止把整串外貌重复第二遍——重复会让模型以为画面里有多个同样的人，把一个人画成互不相连的几块。`}
    - 按正文 P 位置为每个角色维护临时服装状态：正文未明确初始穿着时可以合理决定一次；没有穿上、脱下、换装、衣物损坏或场景/时间跳跃时沿用上一状态，发生明确变化后从对应 P 位置起更新。首次确定一套临时服装时，必须冻结足以复现款式的“服装视觉指纹”：服装类别之外，再固定版型/剪裁、主色和关键部件，涉及裤袜时固定颜色与透明度；例如不能只写 school uniform, pantyhose，而应具体到 navy school blazer, white collared shirt, red ribbon, dark pleated skirt, opaque white pantyhose。只补少量关键特征，不堆无关装饰。相同状态复用同一视觉指纹；镜头外不可见的部件可以省略，但省略不等于脱掉，后续重新可见且中间没有变化时必须恢复。每张图的 tag 与 nl 都要写出当前镜头可见的关键服装特征。临时穿着不得写进固定 outfit，除非设定明确它是长期不换的招牌着装。
    ${E?"- 多人画面中，每个角色的发色、瞳色、体型、服装、物件和个人动作都必须放进各自的 characters[].tag，禁止放进 Base 或分配给其他角色。":"- 多人画面中，每个角色的发色、瞳色、体型、服装、物件和个人动作都必须使用该角色的区分性称谓邻接绑定，禁止把两人的外貌特征散放成无法归属的一串公共 tag。"}
