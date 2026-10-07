@@ -20,6 +20,7 @@ import { isAiStoryMessage, isStoryMessage, type STContext } from '@/st/context';
 import type { AutoTagSettings } from '@/state/settings';
 import {
   activeComfyPreset,
+  ANIMA_NL_OFF_OVERRIDE,
   DEFAULT_COMFY_NL_SPEC,
   DEFAULT_COMFY_SPEC,
   DEFAULT_COMFY_THINKING,
@@ -57,8 +58,12 @@ function backendPromptSpec(options: AutoTagSettings, nlOn: boolean, naiCharPromp
     // anima 风格:同一条 NAI 协议打给后端跑 Anima 的兼容站,规范整份换掉
     if (settings.nai.promptStyle === 'anima') {
       const template = (options.prompts?.animaSpec ?? '').trim() || DEFAULT_ANIMA_SPEC;
-      const lang = settings.nai.nlLanguage === 'zh' ? '中文' : 'English';
-      return template.replaceAll('{{nlLang}}', lang);
+      // 中文选项已下线:{{nlLang}} 恒展开为 English(宏留给自定义模板,不留字面量)
+      const resolved = template.replaceAll('{{nlLang}}', 'English');
+      // 「不生成 nl」:规范与思维链各自追加一条定向覆盖指令,输出只保留 tag
+      return settings.nai.nlLanguage === 'off'
+        ? [resolved, ANIMA_NL_OFF_OVERRIDE].join(String.fromCharCode(10, 10)).trim()
+        : resolved;
     }
     return naiCharPromptsOn
       ? (options.prompts?.naiV5Spec ?? '').trim() || DEFAULT_NAI_V5_SPEC
@@ -78,7 +83,10 @@ function backendPromptSpec(options: AutoTagSettings, nlOn: boolean, naiCharPromp
 function backendThinkingPrompt(options: AutoTagSettings, naiCharPromptsOn: boolean): string {
   if (settings.defaultBackend === 'nai') {
     if (settings.nai.promptStyle === 'anima') {
-      return (options.prompts?.animaThinking ?? '').trim() || DEFAULT_ANIMA_THINKING;
+      const thinking = (options.prompts?.animaThinking ?? '').trim() || DEFAULT_ANIMA_THINKING;
+      return settings.nai.nlLanguage === 'off'
+        ? [thinking, ANIMA_NL_OFF_OVERRIDE].join(String.fromCharCode(10, 10)).trim()
+        : thinking;
     }
     return naiCharPromptsOn
       ? (options.prompts?.naiV5Thinking ?? '').trim() || DEFAULT_NAI_V5_THINKING
@@ -159,9 +167,10 @@ export async function buildAutoTagMessages(
     settings.nai.promptStyle !== 'anima' &&
     naiSupportsCharacterPrompts(settings.nai.model);
   const comfyPreset = comfyOn ? activeComfyPreset() : null;
-  // anima 风格下 nl 是主要表达载体,恒开
+  // anima 风格下 nl 默认是主要表达载体;「nl 语言」选「不生成 nl」时关闭,协议退回单键 tag
   const animaStyle = settings.defaultBackend === 'nai' && settings.nai.promptStyle === 'anima';
-  const nlOn = !!comfyPreset?.naturalLanguage || naiCharPromptsOn || animaStyle;
+  const animaNlOn = animaStyle && settings.nai.nlLanguage !== 'off';
+  const nlOn = !!comfyPreset?.naturalLanguage || naiCharPromptsOn || animaNlOn;
   // 动态负面词门槛:custom 模式看工作流是否含 %negative_prompt%;
   // simple 模式由模板决定(Flux 无真实负面输入,请求了也没地方写)。
   let negativeOn = false;

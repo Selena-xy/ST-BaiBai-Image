@@ -168,12 +168,12 @@ const TAG_PROMPT_METAS: TagPromptMeta[] = [
   {
     key: 'animaSpec',
     label: 'Anima 规范',
-    hint: 'NAI 渠道的「提示词风格」设为 Anima 时使用。同一份规范也被后端为 Anima（Qwen 链路）的 NAI 兼容站沿用：单串输出、自然语言为主体、角色外貌全部写进主体，不产出 characters；并禁用 NAI 的词法（:: 权重、source#/target#、括号转义）。留空用内置默认。',
+    hint: 'NAI 渠道的「提示词风格」设为 Anima 时使用。同一份规范也被后端为 Anima（Qwen 链路）的 NAI 兼容站沿用：单串输出、自然语言为主体、角色外貌全部写进主体，不产出 characters；并禁用 NAI 的词法（:: 权重、source#/target#、括号转义）。「nl 语言」选「不生成 nl」时，会自动在本份末尾追加一条「本次不产出 nl」的定向指令（无需你改文本）。留空用内置默认。',
     builtin: DEFAULT_ANIMA_SPEC,
     macros: [
       {
         token: '{{nlLang}}',
-        desc: 'nl 的书写语言；按 NAI 面板的「nl 语言」展开为中文或 English。',
+        desc: 'nl 的书写语言；现固定展开为 English（中文选项已下线；NAI 面板的「nl 语言」只剩 English 与「不生成 nl」）。',
       },
     ],
   },

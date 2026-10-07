@@ -1000,16 +1000,18 @@ describe('auto tag prompt', () => {
     try {
       settings.defaultBackend = 'nai';
       settings.nai.promptStyle = 'anima';
-      settings.nai.nlLanguage = 'zh';
+      settings.nai.nlLanguage = 'en';
       const messages = await buildAutoTagMessages(context(), 1, options, null);
       const joined = messages.map(message => message.content).join('\n');
 
       // 换的是规范整份,不是 NAI 那份
       expect(joined).toContain('【Anima 提示词规范】');
       expect(joined).not.toContain('[NovelAI 4.5/V5 Prompt Specification]');
-      // {{nlLang}} 宏按 nl 语言展开,不留宏字面量
-      expect(joined).toContain('nl 一律用 中文 书写');
+      // {{nlLang}} 恒展开为 English(中文选项已下线),不留宏字面量
+      expect(joined).toContain('nl 一律用 English 书写');
       expect(joined).not.toContain('{{nlLang}}');
+      // 规范与思维链里会出现「本次不产出 nl」这个条件式说法,故用覆盖指令独有的句子做判据
+      expect(joined).not.toContain('不要写 nl 键');
       // 单串输出:协议示例里不得出现 characters
       expect(joined).not.toContain('"characters"');
       // 思考清单换成 Anima 那份
@@ -1022,6 +1024,19 @@ describe('auto tag prompt', () => {
       const naiJoined = naiMessages.map(message => message.content).join('\n');
       expect(naiJoined).toContain('[NovelAI 4.5/V5 Prompt Specification]');
       expect(naiJoined).toContain('"characters"');
+
+      // 「不生成 nl」只在 Anima 单串风格生效:规范与思维链各追加一条定向指令,协议退回单键 tag
+      settings.nai.promptStyle = 'anima';
+      settings.nai.nlLanguage = 'off';
+      const offMessages = await buildAutoTagMessages(context(), 1, options, null);
+      const offJoined = offMessages.map(message => message.content).join('\n');
+      expect(offJoined).toContain('本次不产出 nl');
+      expect(offJoined).toContain('不要写 nl 键');
+      // 规范与思维链两处各挂一次,不是只挂在一处
+      expect(offJoined.split('本次不产出 nl').length - 1).toBeGreaterThanOrEqual(2);
+      // 输出结构退回单键 tag:示例里不再出现 nl 键,内容规则也换成「tag 只能是画面内容」
+      expect(offJoined).not.toContain('"nl":');
+      expect(offJoined).toContain('tag 只能是该画面的正面内容提示词');
     } finally {
       settings.defaultBackend = oldBackend;
       settings.nai.promptStyle = oldStyle;

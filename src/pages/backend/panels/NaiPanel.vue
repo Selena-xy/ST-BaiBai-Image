@@ -477,9 +477,10 @@ const PROMPT_STYLE_OPTIONS = [
   { value: 'nai', label: 'NAI 原生(Base + Character Prompts)' },
   { value: 'anima', label: 'Anima 单串(自然语言为主)' },
 ];
+// 中文选项已下线:英文 nl 更稳,且中文要多花几倍 token;留 'off' 给「只要 tag」的场景。
 const NL_LANGUAGE_OPTIONS = [
   { value: 'en', label: 'English(推荐,Anima 主要以英文训练)' },
-  { value: 'zh', label: '中文(Qwen 文本编码器可读)' },
+  { value: 'off', label: '不生成 nl(只输出 tag)' },
 ];
 
 const isAnimaStyle = computed(() => settings.nai.promptStyle === 'anima');
@@ -492,7 +493,7 @@ const promptStyleSel = computed<string>({
 const nlLanguageSel = computed<string>({
   get: () => settings.nai.nlLanguage,
   set: v => {
-    settings.nai.nlLanguage = v === 'zh' ? 'zh' : 'en';
+    settings.nai.nlLanguage = v === 'off' ? 'off' : 'en';
   },
 });
 
@@ -1159,6 +1160,11 @@ async function removeVibe(vibe: NaiVibe) {
             />
           </div>
         </div>
+        <p v-if="isAnimaStyle" class="bbi-field-hint">
+          English：每张图在 tag 串后追加一段自然语言描述（Anima 读自然语言很强，关系与空间主要靠它补）。
+          选「不生成 nl」则只输出 tag：省 token，也少了模型在 nl 里跑偏的机会，但互动、相对位置、景别与
+          光线这些原本由 nl 承担的内容要压回短 tag——规范与思维链会自动追加一条定向指令，不需要你改文本。
+        </p>
         <p class="bbi-field-hint">
           只换提示词的写法与输出结构，请求协议不变（两种都走 NAI 的 generate-image）。
           Anima 风格为「单串输出、自然语言为主体、角色外貌全部写进主体、不产出 characters」，
