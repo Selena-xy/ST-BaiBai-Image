@@ -112,8 +112,9 @@ NAI 面板「默认参数」里新增下拉：
 
 - 请求协议不变，仍打 `generate-image`，只是发出去的内容结构不同。
 - `Anima 单串` 下不再产出 `char_captions`（该网关没有区域绑定位，外貌写进主体反而更稳），也不再追加 NAI 官方质量词；`backendStatus().supportsCharacters` 同步报 false，避免第三方误以为该传 characters。
-- 新增 **nl 语言** 下拉（English / 中文）。Anima 主要以英文训练，默认 English。
+- **nl 语言** 下拉：`English` / `不生成 nl`。Anima 主要以英文训练，默认 `English`——每张图在 tag 串后追加一段自然语言描述；选 `不生成 nl` 则只输出 tag（省 token，也少了模型在 nl 里跑偏的机会），但互动、相对位置与朝向、景别、光线这些原本由 nl 承担的内容会被要求压回短 tag——规范与思维链末尾会自动追加一条定向指令，不需要自己改文本。（中文选项已下线：英文更稳，且中文要多花几倍 token；旧设置里存过 `zh` 的会自动归一为 `en`。）
 - 内置规范 `DEFAULT_ANIMA_SPEC` / `DEFAULT_ANIMA_THINKING` 按 Anima 官方文档编写：tag 与自然语言并用、`@` 画师前缀、权重语法有效（要比 SDXL 更高）、官方 tag 段序（质量/时间/安全 → 人数 → 角色 → 画师 → general）、`safe / sensitive / nsfw / explicit` 安全 tag 由模型按每张图的实际内容判定并写在首位。可在设置页「提示词」里覆盖。
+- 规范与思维链再按本机实测（Anima-2.9B + Turbo LoRA、CFG 1、12 步）重整过一轮：**固定正面零重复**——质量词、年代词、画师与 `@`、`uncensored`、`no text`、`highres` 这类 meta 词、`score_*`、写实渲染词与 dataset 标签一律不写；安全 tag 四档判据（按画面实际内容定，不许一路 safe）；元词白名单（`anime screenshot` / `official art` / `concept art`）；权重 1.5~2.5，并注明本链路 CFG 固定 1 时权重只作用在文本嵌入上；不产出负面词；25~40 个短 tag 且关键 tag 必须齐全（保留「每个 tag 1–4 词」「人数 tag 不被长句稀释」两条实测规矩）；画幅落点写明 920×1536 / 1536×920。思维链同步加「第 0 条｜既定配置」与「安全档位与风格口径」一段，选段顺延为 F。
 - **同人角色身份 tag** 按 Danbooru 实际 tag 名写：自带作品消歧的写括号形 `shorekeeper (wuthering waves)`；裸名的写角色名再补作品 tag `oomuro sakurako, oomuro-ke`。下划线换空格、连字符保留、**不用反斜杠转义括号**（那是 ComfyUI 的重量语法写法，Anima 不解析）。
 
 ### 2. 尺寸吸附
@@ -140,7 +141,7 @@ NAI 面板新增 **尺寸吸附** 开关（仅 Anima 风格生效，默认开）
 ### 改动文件一览
 
 - `src/state/settings.ts` — 三个新字段（`promptStyle` / `nlLanguage` / `sizeSnap`）+ 两套 Anima 规范常量（含造型身份 tag 条款与禁用表）
-- `src/autoTag/prompt.ts` — 规范与思维链按风格分叉；Anima 风格退回单串、`nl` 恒开、示例带安全 tag；建档字段规则与 changes 规则补造型归属、补档与旧档清理
+- `src/autoTag/prompt.ts` — 规范与思维链按风格分叉；Anima 风格退回单串、`nl` 可关（关闭时规范与思维链各追加一条定向覆盖指令）、示例带安全 tag；建档字段规则与 changes 规则补造型归属、补档与旧档清理
 - `src/backends/nai.ts` — 质量词策略、`snapGatewayAspect()` 尺寸吸附、`char_captions` 在 Anima 风格下留空
 - `src/generate.ts` — `supportsCharacters` 与风格保持一致
 - `src/pages/backend/panels/NaiPanel.vue`、`src/pages/settings/index.vue` — 面板控件与规范编辑入口
