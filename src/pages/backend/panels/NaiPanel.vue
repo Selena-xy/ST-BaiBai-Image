@@ -63,6 +63,7 @@ import {
   newNaiEndpoint,
   NAI_MODELS,
   NAI_OFFICIAL_URL,
+  ORIENTATION_LOCKS,
   settings,
   type NaiArtistPreset,
   type NaiEndpoint,
@@ -465,35 +466,6 @@ const modelSel = computed<string>({
   set: v => {
     const hit = NAI_MODELS.find(m => m.value === v);
     if (hit) settings.nai.model = hit.value;
-  },
-});
-
-/**
- * 提示词风格:只换「写给模型的规范与输出结构」,不换请求协议(两者都打 NAI 的 generate-image)。
- * - nai  :Base Prompt + 每角色原生 Character Prompt,给真 NAI 4.5/V5;
- * - anima:单串输出、自然语言为主体、外貌全部写进主体,给后端跑 Anima 的 NAI 兼容站。
- */
-const PROMPT_STYLE_OPTIONS = [
-  { value: 'nai', label: 'NAI 原生(Base + Character Prompts)' },
-  { value: 'anima', label: 'Anima 单串(自然语言为主)' },
-];
-// 中文选项已下线:英文 nl 更稳,且中文要多花几倍 token;留 'off' 给「只要 tag」的场景。
-const NL_LANGUAGE_OPTIONS = [
-  { value: 'en', label: 'English(推荐,Anima 主要以英文训练)' },
-  { value: 'off', label: '不生成 nl(只输出 tag)' },
-];
-
-const isAnimaStyle = computed(() => settings.nai.promptStyle === 'anima');
-const promptStyleSel = computed<string>({
-  get: () => settings.nai.promptStyle,
-  set: v => {
-    settings.nai.promptStyle = v === 'anima' ? 'anima' : 'nai';
-  },
-});
-const nlLanguageSel = computed<string>({
-  get: () => settings.nai.nlLanguage,
-  set: v => {
-    settings.nai.nlLanguage = v === 'off' ? 'off' : 'en';
   },
 });
 
@@ -1136,48 +1108,15 @@ async function removeVibe(vibe: NaiVibe) {
           />
         </div>
 
-        <div class="be-row">
-          <div class="bbi-field">
-            <div class="bbi-field-head">
-              <span class="bbi-field-label">提示词风格</span>
-            </div>
-            <BbiSelect
-              class="be-select"
-              v-model="promptStyleSel"
-              :options="PROMPT_STYLE_OPTIONS"
-              aria-label="提示词风格"
-            />
-          </div>
-          <div v-if="isAnimaStyle" class="bbi-field">
-            <div class="bbi-field-head">
-              <span class="bbi-field-label">nl 语言</span>
-            </div>
-            <BbiSelect
-              class="be-select"
-              v-model="nlLanguageSel"
-              :options="NL_LANGUAGE_OPTIONS"
-              aria-label="nl 语言"
-            />
-          </div>
-        </div>
-        <p v-if="isAnimaStyle" class="bbi-field-hint">
-          English：每张图在 tag 串后追加一段自然语言描述（Anima 读自然语言很强，关系与空间主要靠它补）。
-          选「不生成 nl」则只输出 tag：省 token，也少了模型在 nl 里跑偏的机会，但互动、相对位置、景别与
-          光线这些原本由 nl 承担的内容要压回短 tag——规范与思维链会自动追加一条定向指令，不需要你改文本。
-        </p>
-        <p class="bbi-field-hint">
-          只换提示词的写法与输出结构，请求协议不变（两种都走 NAI 的 generate-image）。
-          Anima 风格为「单串输出、自然语言为主体、角色外貌全部写进主体、不产出 characters」，
-          给后端跑 Anima（Qwen 链路）的 NAI 兼容站使用。
-        </p>
-        <label v-if="isAnimaStyle" class="bbi-switch-row">
-          <span class="bbi-field-label">尺寸吸附到该网关三档</span>
-          <input v-model="settings.nai.sizeSnap" type="checkbox" class="bbi-checkbox" />
+        <label class="bbi-switch-row">
+          <span class="bbi-field-label">生成自然语言</span>
+          <input v-model="settings.nai.naturalLanguage" type="checkbox" class="bbi-checkbox" />
         </label>
-        <p v-if="isAnimaStyle" class="bbi-field-hint">
-          这类网关会把尺寸按宽高比吸附成三档：竖 920×1536、方 1024×1024、横 1536×920。
-          你配 1536×1152（比 1.333）会被判成方图，白白丢掉宽图——开启后本地先吸附，
-          面板填的与实际拿到的才对得上。关闭则原样下发（由网关自行处理）。
+        <p class="bbi-field-hint">
+          开:自动 tag 为画面与每个角色额外写一段英文描述;关:只写 tag。4.5 的提示词上限约 512 token
+          (画面与所有角色共用),自然语言最占篇幅,超了会被截断、画面走样,可以关掉试试。
+          只影响之后新写的提示词:正文里已有的自然语言照常发送,想对比可在「编辑提示词」里点「AI 重写提示词」。
+          多角色提示照常按角色拆分,只是每个角色同样只写 tag。
         </p>
 
         <div class="be-row">
@@ -1218,7 +1157,27 @@ async function removeVibe(vibe: NaiVibe) {
             </datalist>
           </div>
         </div>
-        <p class="bbi-field-hint">竖屏用于单人、特写、立绘;横屏用于群像、远景、全景;方向由自动 tag 判定。</p>
+        <div class="bbi-select-row">
+          <span class="bbi-field-label">画幅方向</span>
+          <div class="bbi-segmented" role="tablist" aria-label="NAI 画幅方向">
+            <button
+              v-for="opt in ORIENTATION_LOCKS"
+              :key="opt.value"
+              class="bbi-seg"
+              :class="{ 'is-on': settings.nai.orientationLock === opt.value }"
+              type="button"
+              role="tab"
+              :aria-selected="settings.nai.orientationLock === opt.value"
+              @click="settings.nai.orientationLock = opt.value"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
+        <p class="bbi-field-hint">
+          竖屏用于单人、特写、立绘;横屏用于群像、远景、全景。「自动」由自动 tag 按画面判定;
+          锁定后每张图都按该方向出,自动 tag 也按这个画幅构图。正文里已记下的方向不会被改写,改回「自动」即恢复。
+        </p>
 
         <div class="be-row">
           <div class="bbi-field">

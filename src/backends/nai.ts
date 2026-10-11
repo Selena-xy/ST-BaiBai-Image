@@ -10,6 +10,7 @@ import {
 } from '@/backends/naiRateLimit';
 import { parseSize, pickSize, type Orientation } from '@/backends/size';
 import { clampVibeStrength, loadVibeData } from '@/backends/vibeStore';
+import type { GenerationArtist, GenerationMeta, GenerationParams, GenerationVibe } from '@/generationMeta';
 import type {
   NaiArtistPreset,
   NaiSettings,
@@ -203,37 +204,6 @@ export function parseResolution(text: string): NaiSize {
   return { width, height };
 }
 
-/**
- * latent.moe 这类「NAI 协议 + Anima 后端」的站,按宽高比把请求尺寸吸附到它实际提供的三档:
- * 竖 920×1536 / 方 1024×1024 / 横 1536×920。
- *
- * 规则是我逐组量出来的(站方文档没写):
- *   832×1216 → 920×1536 ; 1152×1536 → 920×1536 ; 1216×832 → 1536×920
- *   1536×1024 → 1536×920 ; 1280×768 → 1536×920 ; 1536×1152 → 1024×1024
- * 即「挑宽高比最接近的一档」。1536×1152(比 1.333)离方图 1.0 只差 0.333、离横图 1.67 差 0.337,
- * 恰好被判给方图 —— 用户在面板配了 4:3 的宽图却一直只拿到 1024×1024 就是这个原因。
- * 本地先吸附,填的尺寸与实际拿到的才对得上。
- */
-const GATEWAY_ASPECT_TIERS: ReadonlyArray<{ width: number; height: number }> = [
-  { width: 920, height: 1536 },
-  { width: 1024, height: 1024 },
-  { width: 1536, height: 920 },
-];
-
-export function snapGatewayAspect(size: NaiSize): NaiSize {
-  const ratio = size.width / size.height;
-  let best = GATEWAY_ASPECT_TIERS[1];
-  let bestGap = Number.POSITIVE_INFINITY;
-  for (const tier of GATEWAY_ASPECT_TIERS) {
-    const gap = Math.abs(tier.width / tier.height - ratio);
-    if (gap < bestGap) {
-      bestGap = gap;
-      best = tier;
-    }
-  }
-  return { width: best.width, height: best.height };
-}
-
 /** NAI 种子是 32 位无符号整数(与 ComfyUI 的 2^53 不同,不能复用 randomSeed)。 */
 export function naiRandomSeed(): number {
   return Math.floor(Math.random() * 2 ** 32);
@@ -326,10 +296,20 @@ function naiActivePreset(nai: NaiSettings): NaiArtistPreset | null {
   );
 }
 
-/** 当前生效的画师串:选中条目的 prompt;未选 / 指向已删条目 / 内容全空白 → 空串。 */
+/** 当前生效的画师串快照（id / 名字 / 正文）。未选或正文全空白 → null。
+ *  拼装（naiArtistPrompt）与随图记录（generateNaiImage 的 usage）都走这里，保证
+ *  「真发出去的画师串」与「记下来的画师串」永远同源。 */
+export function naiArtistUsage(nai: NaiSettings): GenerationArtist | null {
+  const preset = naiActivePreset(nai);
+  const prompt = preset?.prompt.trim() ?? '';
+  // 全空白的 preset 必须归 null:'   ' 是 truthy,下游 filter(Boolean) 兜不住它
+  if (!preset || !prompt) return null;
+  return { id: preset.id, name: preset.name, prompt };
+}
+
+/** 当前生效的画师串:选中条目的正文;未选 / 指向已删条目 / 内容全空白 → 空串。 */
 export function naiArtistPrompt(nai: NaiSettings): string {
-  // 全空白的 preset 必须归空串:'   ' 是 truthy,下游 filter(Boolean) 兜不住它
-  return naiActivePreset(nai)?.prompt.trim() ?? '';
+  return naiArtistUsage(nai)?.prompt ?? '';
 }
 
 /**
@@ -339,12 +319,7 @@ export function naiArtistPrompt(nai: NaiSettings): string {
  */
 export function naiQualityTags(nai: NaiSettings): string {
   const bound = naiActivePreset(nai)?.quality.trim();
-  if (bound) return bound;
-  const override = nai.qualityTags.trim();
-  if (override) return override;
-  // anima 风格:后端是 Qwen 链路,NAI 那套官方质量词(very aesthetic, masterpiece…)
-  // 对它是外来词,只会挤占提示词预算,故内置默认视为空。用户显式配过的仍走上面两级生效。
-  return nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(nai.model);
+  return bound || nai.qualityTags.trim() || naiDefaultQualityTags(nai.model);
 }
 
 /** 负面提示词解析链:配方绑定值 → 渠道覆盖值(undesiredContent)→ 内置默认(模型官方负面词)。 */
@@ -401,10 +376,7 @@ export function fullNegativePrompt(nai: NaiSettings): string {
 export function buildNaiParameters(nai: NaiSettings, values: NaiGenerateValues): JsonObject {
   // 画幅按方向取用户配的那一格;没填回落竖屏默认
   const orientation = values.size ?? 'portrait';
-  const resolved = parseResolution(pickSize(nai, orientation) || '832×1216');
-  // anima 风格先按该网关的三档吸附,免得面板填的尺寸与实际拿到的对不上(见 snapGatewayAspect)
-  const { width, height } =
-    nai.promptStyle === 'anima' && nai.sizeSnap ? snapGatewayAspect(resolved) : resolved;
+  const { width, height } = parseResolution(pickSize(nai, orientation) || '832×1216');
   // 显式传入 > 面板固定种子 > 随机
   const seed = values.seed ?? (nai.seed > 0 ? nai.seed : naiRandomSeed());
   const prompt = fullPositivePrompt(nai, values.prompt, values.nl);
@@ -449,14 +421,12 @@ export function buildNaiParameters(nai: NaiSettings, values: NaiGenerateValues):
   } else {
     // NAI4/4.5/V5: v4 caption structure; Vibe uses a model-specific cached encoding.
     params.reference_image_multiple_cached = [];
-    // anima 风格不产出 char_captions:该网关没有区域绑定,外貌已写进主体(见 DEFAULT_ANIMA_SPEC)
-    const charCaptions =
-      naiSupportsCharacterPrompts(nai.model) && nai.promptStyle !== 'anima'
-        ? (values.characters ?? []).map(character => ({
-            char_caption: characterCaption(character),
-            centers: [{ x: 0.5, y: 0.5 }],
-          }))
-        : [];
+    const charCaptions = naiSupportsCharacterPrompts(nai.model)
+      ? (values.characters ?? []).map(character => ({
+          char_caption: characterCaption(character),
+          centers: [{ x: 0.5, y: 0.5 }],
+        }))
+      : [];
     params.characterPrompts = [];
     params.v4_prompt = {
       caption: { base_caption: prompt, char_captions: charCaptions },
@@ -491,21 +461,30 @@ export function vibeModelKey(model: string): string {
   return 'v4-5full';
 }
 
+/** 一次 applyVibes 的结果。 */
+export interface VibeApplication {
+  /** 实际叠加进 parameters 的 vibe（含配置强度与实际发送强度）。 */
+  applied: GenerationVibe[];
+  /** 因缺当前模型编码 / 缺原图 / 模型不支持而跳过的 vibe 名（供 toastr）。 */
+  skipped: string[];
+}
+
 /**
  * 把启用的 vibe 叠加进 parameters。
  * - NAI3:参考原图进 reference_image_multiple(配信息提取度 1 + 强度);
  * - NAI4/4.5:编码数据进 reference_image_multiple_cached(随机 cache key),强度并进
  *   reference_strength_multiple;强度总和超过 1 且开启归一化时按比例压回 1。
- * 返回被跳过的 vibe 名(缺当前模型编码/缺原图),调用方据以提示。
+ * 返回实际叠加的 vibe(供随图记录)与被跳过的 vibe 名(调用方据以提示)。
  */
 export function applyVibes(
   params: JsonObject,
   nai: NaiSettings,
   dataById: ReadonlyMap<string, NaiVibeData>,
-): string[] {
+): VibeApplication {
   const active = nai.vibes.filter(v => v.enabled);
-  if (!active.length) return [];
-  if (!naiSupportsVibes(nai.model)) return active.map(vibe => vibe.name);
+  if (!active.length) return { applied: [], skipped: [] };
+  if (!naiSupportsVibes(nai.model)) return { applied: [], skipped: active.map(vibe => vibe.name) };
+  const applied: GenerationVibe[] = [];
   const skipped: string[] = [];
   const strengths = params.reference_strength_multiple as number[];
 
@@ -521,13 +500,14 @@ export function applyVibes(
       images.push(data.image);
       infos.push(1);
       strengths.push(vibe.strength);
+      applied.push(vibeUsage(vibe, vibe.strength));
     }
-    return skipped;
+    return { applied, skipped };
   }
 
   const cached = params.reference_image_multiple_cached as { cache_secret_key: string; data: string }[];
   const modelKey = vibeModelKey(nai.model);
-  const picked: number[] = [];
+  const picked: NaiVibe[] = [];
   for (const vibe of active) {
     const enc = dataById.get(vibe.id)?.encodings[modelKey];
     if (!enc?.encoding) {
@@ -535,13 +515,28 @@ export function applyVibes(
       continue;
     }
     cached.push({ cache_secret_key: randomUuid(), data: enc.encoding });
-    picked.push(vibe.strength);
+    picked.push(vibe);
   }
   // 归一化:总强度 > 1 时按比例压回 1(st-chatu8 同口径;4.5 开归一化时官方端也会自动处理)
-  const total = picked.reduce((s, x) => s + x, 0);
+  const total = picked.reduce((sum, vibe) => sum + vibe.strength, 0);
   const scale = nai.normalizeRefStrength && total > 1 ? 1 / total : 1;
-  for (const s of picked) strengths.push(s * scale);
-  return skipped;
+  for (const vibe of picked) {
+    const effective = vibe.strength * scale;
+    strengths.push(effective);
+    applied.push(vibeUsage(vibe, effective));
+  }
+  return { applied, skipped };
+}
+
+/** 造一条 vibe 使用记录：strength = 面板配置值，effectiveStrength = 实际发送值。 */
+function vibeUsage(vibe: NaiVibe, effectiveStrength: number): GenerationVibe {
+  return {
+    id: vibe.id,
+    name: vibe.name,
+    group: vibe.group,
+    strength: vibe.strength,
+    effectiveStrength,
+  };
 }
 
 /* ============ 网络请求 ============ */
@@ -615,8 +610,15 @@ export function unzipNaiImage(buffer: ArrayBuffer): { base64: string; filename: 
   return { base64: uint8ToBase64(files[name]), filename: name };
 }
 
+/** generateNaiImage 的完整产出：图片 + 随图记录的元信息。 */
+export interface NaiImageOutput {
+  result: ComfyImageResult;
+  /** 不在 tag 文本里的那部分配方（画师串 / vibe / 采样参数 / 模型无关字段）。 */
+  usage: Pick<GenerationMeta, 'positive' | 'negative' | 'width' | 'height' | 'artist' | 'vibes' | 'params'>;
+}
+
 /**
- * 生图。返回与 ComfyImageResult 同构的结果(dataURL 形式),楼层卡片/落盘层可直接复用。
+ * 生图。返回图片与本次实际使用的画师串/vibe/采样参数。
  *
  * 429/5xx/网络级失败会自动退避重试(backends/naiRateLimit.ts);配置类错误
  * (key 错、订阅过期、参数非法)立刻抛出,不做无谓重试。onRetry 用于把退避过程
@@ -627,10 +629,12 @@ export async function generateNaiImage(
   values: NaiGenerateValues,
   signal?: AbortSignal,
   opts: { onRetry?: (info: NaiRetryInfo) => void } = {},
-): Promise<ComfyImageResult> {
+): Promise<NaiImageOutput> {
   if (!nai.key.trim()) throw new NaiError('请先填写 NAI API Key');
   if (!values.prompt.trim()) throw new NaiError('正向提示词不能为空');
 
+  // 画师串在发请求时解析一次，快照下来随图落盘：事后配方被删/改名也不丢。
+  const artist = naiArtistUsage(nai);
   const params = buildNaiParameters(nai, values);
   const activeVibes = naiSupportsVibes(nai.model) ? nai.vibes.filter(vibe => vibe.enabled) : [];
   const loaded = new Map<string, NaiVibeData>();
@@ -651,7 +655,7 @@ export async function generateNaiImage(
       console.warn(`[柏宝绘] 读取 vibe「${vibe.name}」失败:`, error);
     }
   }
-  const skipped = applyVibes(params, nai, loaded);
+  const { applied, skipped } = applyVibes(params, nai, loaded);
   if (skipped.length) {
     const reason = naiSupportsVibes(nai.model) ? '缺当前模型编码' : '当前模型不支持 Vibe Transfer';
     console.warn(`[柏宝绘] 以下 vibe 因${reason}被跳过:`, skipped);
@@ -667,7 +671,7 @@ export async function generateNaiImage(
   };
   // 只把「发请求 + 解包」包进重试:上面拼参数、读 vibe 数据的活是一次性的,
   // 重跑它们既白费功夫,也会把 vibe 缺编码的 toastr 警告重复弹出来。
-  return runNaiWithRetry(
+  const result = await runNaiWithRetry(
     async () => {
       const resp = await fetch(naiEndpoint(nai.url, 'generate-image'), {
         method: 'POST',
@@ -691,6 +695,34 @@ export async function generateNaiImage(
     },
     { signal, onRetry: opts.onRetry },
   );
+
+  return {
+    result,
+    usage: {
+      // positive 即顶层 input / v4_prompt 里那份全文（含画师串与质量词）
+      positive: fullPositivePrompt(nai, values.prompt, values.nl),
+      negative: fullNegativePrompt(nai),
+      width: params.width as number,
+      height: params.height as number,
+      artist,
+      vibes: applied,
+      params: naiParamsSnapshot(params, nai),
+    },
+  };
+}
+
+/** 采样参数快照：只收标量，不含提示词与 vibe 二进制。 */
+function naiParamsSnapshot(params: JsonObject, nai: NaiSettings): GenerationParams {
+  return {
+    sampler: params.sampler as string,
+    steps: params.steps as number,
+    cfg: params.scale as number,
+    cfgRescale: params.cfg_rescale as number,
+    noiseSchedule: params.noise_schedule as string,
+    quality: naiQualityTags(nai),
+    varietyBoost: nai.varietyBoost,
+    normalizeRefStrength: nai.normalizeRefStrength,
+  };
 }
 
 /* ============ vibe 编码与 .naiv4vibe 互通 ============ */

@@ -11,12 +11,10 @@ import {
   naiDefaultQualityTags,
   naiDefaultUndesired,
   naiEndpoint,
-  naiQualityTags,
   naiRandomSeed,
   parseNaiv4vibe,
   parseResolution,
   skipCfgAboveSigma,
-  snapGatewayAspect,
   unzipNaiImage,
   vibeModelKey,
   NaiError,
@@ -49,9 +47,8 @@ function nai(overrides: Partial<NaiSettings> = {}): NaiSettings {
     vibes: [],
     artistPresets: [],
     activeArtistId: '',
-    promptStyle: 'nai',
-    nlLanguage: 'en',
-    sizeSnap: true,
+    naturalLanguage: true,
+    orientationLock: 'auto',
     ...overrides,
   };
 }
@@ -404,7 +401,7 @@ describe('NAI V5 support', () => {
     const settings = nai({ model: 'nai-diffusion-5-full', vibes: [vibe({ name: 'V5 vibe' })] });
     const params = buildNaiParameters(settings, { prompt: 'x', seed: 1 });
     const data = vibeData({ encodings: { v5full: { encoding: 'djU=', infoExtracted: 1 } } });
-    expect(applyVibes(params, settings, new Map([['v1', data]]))).toEqual([]);
+    expect(applyVibes(params, settings, new Map([['v1', data]])).skipped).toEqual([]);
     expect(params.reference_image_multiple_cached).toEqual([
       { cache_secret_key: expect.any(String), data: 'djU=' },
     ]);
@@ -545,8 +542,12 @@ describe('skipCfgAboveSigma', () => {
 describe('applyVibes', () => {
   it('NAI4/4.5:编码数据进 cached,强度并进 strength 数组', () => {
     const params = buildNaiParameters(nai(), { prompt: 'x', seed: 1 });
-    const skipped = applyVibes(params, nai({ vibes: [vibe()] }), new Map([['v1', vibeData()]]));
+    const { applied, skipped } = applyVibes(params, nai({ vibes: [vibe()] }), new Map([['v1', vibeData()]]));
     expect(skipped).toEqual([]);
+    // 随图记录的是面板配置强度与实际发送强度
+    expect(applied).toEqual([
+      { id: 'v1', name: '测试Vibe', group: '', strength: 0.6, effectiveStrength: 0.6 },
+    ]);
     const cached = params.reference_image_multiple_cached as { cache_secret_key: string; data: string }[];
     expect(cached).toHaveLength(1);
     expect(cached[0].data).toBe('ZW5jb2Rpbmc=');
@@ -556,18 +557,19 @@ describe('applyVibes', () => {
 
   it('缺当前模型编码的 vibe 被跳过并返回名字', () => {
     const params = buildNaiParameters(nai(), { prompt: 'x', seed: 1 });
-    const skipped = applyVibes(
+    const { applied, skipped } = applyVibes(
       params,
       nai({ vibes: [vibe({ name: '旧模型Vibe', modelKeys: ['v3'] })] }),
       new Map([['v1', vibeData({ encodings: { v3: { encoding: 'eQ==', infoExtracted: 1 } } })]]),
     );
     expect(skipped).toEqual(['旧模型Vibe']);
+    expect(applied).toEqual([]);
     expect(params.reference_image_multiple_cached).toEqual([]);
   });
 
   it('强度总和超过 1 且开归一化时按比例压回 1', () => {
     const params = buildNaiParameters(nai(), { prompt: 'x', seed: 1 });
-    applyVibes(
+    const { applied } = applyVibes(
       params,
       nai({
         vibes: [vibe({ id: 'a', strength: 0.8 }), vibe({ id: 'b', strength: 0.6 })],
@@ -579,12 +581,16 @@ describe('applyVibes', () => {
     );
     const strengths = params.reference_strength_multiple as number[];
     expect(strengths[0] + strengths[1]).toBeCloseTo(1, 6);
+    // 记录里配置值保持原样，实际发送值反映归一化结果
+    expect(applied.map(v => v.strength)).toEqual([0.8, 0.6]);
+    expect(applied[0].effectiveStrength).toBeCloseTo(0.8 / 1.4, 6);
+    expect(applied[1].effectiveStrength).toBeCloseTo(0.6 / 1.4, 6);
   });
 
   it('NAI3:参考原图进 reference_image_multiple', () => {
     const settings = nai({ model: 'nai-diffusion-3', vibes: [vibe()] });
     const params = buildNaiParameters(settings, { prompt: 'x', seed: 1 });
-    const skipped = applyVibes(params, settings, new Map([['v1', vibeData()]]));
+    const { skipped } = applyVibes(params, settings, new Map([['v1', vibeData()]]));
     expect(skipped).toEqual([]);
     expect(params.reference_image_multiple).toEqual(['aW1hZ2U=']);
     expect(params.reference_information_extracted_multiple).toEqual([1]);
@@ -708,64 +714,5 @@ describe('内置画师串配方(只读、随版本更新、不进 settings)', ()
   it('activeArtistId 指向不存在的内置 id(如下线后)→ 不加画师串', () => {
     const s = nai({ artistPresets: [], activeArtistId: 'bi_gone' });
     expect(naiArtistPrompt(s)).toBe('');
-  });
-});
-
-describe('Anima 风格(同一 NAI 协议、后端换成 Anima 的兼容站)', () => {
-  it('naiQualityTags:anima 风格下不再追加 NAI 官方质量词', () => {
-    // 真 NAI:官方词照旧
-    expect(naiQualityTags(nai({ model: 'nai-diffusion-4-5-full', promptStyle: 'nai' }))).toContain(
-      'very aesthetic',
-    );
-    // Anima:内置默认视为空(NAI 官方词对 Qwen 链路是外来词)
-    expect(naiQualityTags(nai({ model: 'nai-diffusion-4-5-full', promptStyle: 'anima' }))).toBe('');
-    // 用户显式配过则仍生效——两级覆盖不受风格影响
-    expect(naiQualityTags(nai({ promptStyle: 'anima', qualityTags: 'my quality' }))).toBe('my quality');
-  });
-
-  it('buildNaiParameters:anima 风格不产出 char_captions(即使传了 characters)', () => {
-    const params = buildNaiParameters(nai({ promptStyle: 'anima' }), {
-      prompt: '1girl, bedroom',
-      nl: 'A girl stands in a bedroom.',
-      characters: [{ name: '小雪', tag: 'girl, long black hair', nl: 'She stands.' }],
-      seed: 1,
-    });
-    const v4 = params.v4_prompt as {
-      caption: { base_caption: string; char_captions: unknown[] };
-    };
-    expect(v4.caption.char_captions).toHaveLength(0);
-    // 外貌与自然语言都进主体
-    expect(v4.caption.base_caption).toContain('1girl, bedroom');
-    expect(v4.caption.base_caption).toContain('A girl stands in a bedroom.');
-  });
-
-  it('snapGatewayAspect:按宽高比吸附到该网关的三档', () => {
-    expect(snapGatewayAspect({ width: 1536, height: 1152 })).toEqual({ width: 1024, height: 1024 });
-    expect(snapGatewayAspect({ width: 1216, height: 832 })).toEqual({ width: 1536, height: 920 });
-    expect(snapGatewayAspect({ width: 1152, height: 1536 })).toEqual({ width: 920, height: 1536 });
-    expect(snapGatewayAspect({ width: 1280, height: 768 })).toEqual({ width: 1536, height: 920 });
-  });
-
-  it('尺寸吸附只在 anima 风格 + sizeSnap 开启时生效', () => {
-    const base = nai({ promptStyle: 'anima', sizeSnap: true, landscapeSize: '1536×1152' });
-    const on = buildNaiParameters(base, { prompt: 'x', nl: '', seed: 1, size: 'landscape' });
-    expect([on.width, on.height]).toEqual([1024, 1024]);
-
-    const off = buildNaiParameters({ ...base, sizeSnap: false }, {
-      prompt: 'x',
-      nl: '',
-      seed: 1,
-      size: 'landscape',
-    });
-    expect([off.width, off.height]).toEqual([1536, 1152]);
-
-    // 真 NAI 风格不动尺寸(官方支持任意 64 倍数)
-    const naiStyle = buildNaiParameters({ ...base, promptStyle: 'nai' }, {
-      prompt: 'x',
-      nl: '',
-      seed: 1,
-      size: 'landscape',
-    });
-    expect([naiStyle.width, naiStyle.height]).toEqual([1536, 1152]);
   });
 });

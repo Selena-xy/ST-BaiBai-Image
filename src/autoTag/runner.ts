@@ -1,5 +1,4 @@
 import { requestCompletion, requestViaMainApi } from '@/api/client';
-import { naiSupportsCharacterPrompts } from '@/backends/nai';
 import { readBookMemory } from '@/autoTag/bookMemory';
 import {
   applyPositionedCharRefs,
@@ -8,7 +7,7 @@ import {
 } from '@/autoTag/charAnchors';
 import { prepareTargetText } from '@/autoTag/clean';
 import { beginGeneration, clearGeneration, consumeGeneration } from '@/autoTag/generationGate';
-import { buildAutoTagMessages } from '@/autoTag/prompt';
+import { autoTagProfile, buildAutoTagMessages } from '@/autoTag/prompt';
 import { rebaseImagePositions, type RebaseReport } from '@/autoTag/rebase';
 import { buildSlotTaskNote } from '@/autoTag/slotPlan';
 import {
@@ -176,30 +175,6 @@ function planChangeOps(plan: ImagePlan): PositionedCharOp[] {
   return ops.sort((left, right) => left.sourceLine - right.sourceLine);
 }
 
-/**
- * 是否强制「建档(changes 里 field:"new")必须携带 nl 外貌描述」。
- *
- * 三种情况不强制:
- * - 单槽重写:本次 changes 会被丢弃,校验它只会白费重试次数。
- * - anima 风格:那条链路不产出 char_captions,建档 nl 不再是协议必需。规范里仍建议给,
- *   但把它当失败条件会把「模型没给 nl」升级成整次 tag 失败 —— 症状就是「一直不出提示词」。
- * - 非 NAI / 非 4.5·V5 模型:原本就不适用。
- * 其余(真 NAI 4.5/V5)沿用原有硬校验。
- */
-export function requiresNewCharNl(opts: {
-  slot: boolean;
-  backend: string;
-  promptStyle: string;
-  model: string;
-}): boolean {
-  return (
-    !opts.slot &&
-    opts.backend === 'nai' &&
-    opts.promptStyle !== 'anima' &&
-    naiSupportsCharacterPrompts(opts.model)
-  );
-}
-
 async function runForFloor(floor: number, opts: RunOptions = {}): Promise<void> {
   const context = getContext();
   diagnostic('runForFloor:enter', {
@@ -334,6 +309,8 @@ async function runForFloor(floor: number, opts: RunOptions = {}): Promise<void> 
     const promptOptions = slot
       ? { ...settings.autoTag, minImages: 1, maxImages: 1 }
       : settings.autoTag;
+    // 协议形态开跑时快照一次:写协议、验收与收尾同一份,用户中途拨开关也不会前后不一
+    const profile = autoTagProfile();
     const messages = await buildAutoTagMessages(
       context,
       floor,
@@ -342,6 +319,7 @@ async function runForFloor(floor: number, opts: RunOptions = {}): Promise<void> 
       preparedTarget,
       anchors.text,
       slot ? buildSlotTaskNote(rawSource, slot.seq) : '',
+      profile,
     );
     const channel = getTagGenChannel();
     // 失败重试:请求异常与「返回无法解析/校验不通过」都视为可重试的异常(后者常见于模型没遵守协议);
@@ -367,14 +345,12 @@ async function runForFloor(floor: number, opts: RunOptions = {}): Promise<void> 
             promptOptions.minImages,
             promptOptions.maxImages,
           );
-          const needsNl = requiresNewCharNl({
-            slot: Boolean(slot),
-            backend: settings.defaultBackend,
-            promptStyle: settings.nai.promptStyle,
-            model: settings.nai.model,
-          });
+          // 单槽重写忽略本次 changes,不校验建档 nl —— 校验它会为一份会被丢弃的
+          // changes 白白消耗重试次数。NAI 关了自然语言时协议不要 nl,也就不验。
           if (
-            needsNl &&
+            !slot &&
+            profile.naiCharPrompts &&
+            profile.nl &&
             candidate.changes.some(change => change.field === 'new' && !change.nl?.trim())
           ) {
             throw new Error('NAI 4.5/V5 建档必须附带 nl 外貌描述');
@@ -438,6 +414,14 @@ async function runForFloor(floor: number, opts: RunOptions = {}): Promise<void> 
     // @占位符按正文位置替换：变化前图片用旧档，变化位置及之后用新档。
     const unknownNames = new Set<string>();
     for (const image of plan.images) {
+      // 协议只要 tag 时,模型照写的 nl 一律丢掉(ComfyUI 关自然语言同一口径):
+      // 留着它就会照常发送,开关等于没关。渠道锁了方向则统一改记锁定值——出图本就按锁走,
+      // 这里只是让 tag 里记的方向与实际画幅一致。
+      if (!profile.nl) {
+        image.nl = '';
+        for (const character of image.characters) character.nl = '';
+      }
+      if (profile.lockedSize) image.size = profile.lockedSize;
       const tagRes = applyPositionedCharRefs(
         image.tag,
         anchors.entries,
