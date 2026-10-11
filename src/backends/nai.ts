@@ -346,29 +346,21 @@ export function naiArtistPrompt(nai: NaiSettings): string {
 }
 
 /**
- * Anima 的固定正面前缀:[质量] + [年代],两段都排在 tag 串最前(见 fullPositivePrompt)。
- * 依据 Anima 模型卡:官方推荐的正面前缀就是 masterpiece, best quality(scores 那套在
- * 2.9B 的 dataset 里没有,不写),年代词则把画风钉在近期作品上 —— 不写会得到
- * very plain and neutral 的老动画质感。规范里明令模型自己一个质量词都不许写,
- * 全靠这一串统一附加,所以它必须非空。
- */
-const ANIMA_QUALITY_TAGS = 'masterpiece, best quality, year 2025, newest';
-
-/**
  * 正面质量词解析链:配方绑定值 → 渠道覆盖值(qualityTags)→ 内置默认。
  * 任一级空串(或纯空白)= 跟随下一级。内置默认当前 = 模型官方词;
  * 以后插件要换成自己的精选默认,只改 naiDefaultQualityTags,链结构不变。
  *
- * anima 风格的兜底是 ANIMA_QUALITY_TAGS(Anima 官方口径的短前缀)。绝不能回落到
- * NAI 那一串 —— very aesthetic / no text 这类词 Anima 不认,只会稀释画面内容。
- * 前两级仍然生效:用户/配方显式绑定的质量词是他自己的选择。
+ * anima 风格的兜底是**空串**:插件不替用户决定 Anima 的正面前缀(质量词/年代词),
+ * 那一串完全由用户在设置里自己填 —— 前两级(配方绑定值、渠道覆盖值)照常生效,
+ * 只是没有第三级。绝不能回落到 NAI 那一串:very aesthetic / no text 这类词 Anima
+ * 不认,只会稀释画面内容。
  */
 export function naiQualityTags(nai: NaiSettings): string {
   const bound = naiActivePreset(nai)?.quality.trim();
   if (bound) return bound;
   const override = nai.qualityTags.trim();
   if (override) return override;
-  return nai.promptStyle === 'anima' ? ANIMA_QUALITY_TAGS : naiDefaultQualityTags(nai.model);
+  return nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(nai.model);
 }
 
 /** 负面提示词解析链:配方绑定值 → 渠道覆盖值(undesiredContent)→ 内置默认(模型官方负面词)。 */

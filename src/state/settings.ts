@@ -1023,7 +1023,8 @@ Example (小雪 is the principal character and has a library profile; 三年级�
  * Anima 侧的写法依据(circlestone-labs/Anima 与 Anima-2.9B 的模型卡):
  * - tag section 顺序 [质量/年代/meta/安全] → [人数] → [角色身份] → [作品] → [画师] → [general];
  * - 角色名后面必须紧跟作品 tag 或外貌词,否则模型会认错人;多人画面必须各自绑定外貌;
- * - 官方推荐正面前缀 masterpiece, best quality(scores 那套在 2.9B 的 dataset 里没有);
+ * - 正面前缀(质量/年代/画师串)由渠道按 section 顺序附加,插件在 anima 下不注入任何内置
+ *   质量词 —— 那一串完全由用户在设置里自己填;
  * - 「提示词越详细越好」:过短的 prompt 会退化成平庸的简单背景,故短 tag 目标 25~40 条;
  * - 权重 (tag:权重) 有效,但需要比 SDXL 更高的值;NAI 的 :: 权重与 source#/target# 一律不认。
  *
@@ -1073,8 +1074,8 @@ export const DEFAULT_ANIMA_SPEC = `【Anima 提示词规范】
    身份 tag 同时写进档案的 fandom 字段(写法见任务协议)。**不要用反斜杠转义圆括号** ——
    那是 ComfyUI 的权重语法写法,Anima 不解析,反斜杠只会原样进入语义。
 6. **固定正面零重复(重要)**:质量词、年代词、画师串与 @画师全部由渠道「固定正面」统一附加在
-   tag 串**最前面** —— 你一个字都不要写,也不要换个说法重复(不要再写一遍 masterpiece、
-   best quality、very aesthetic,也不要写 year 2025)。同理不写写实/渲染向词(realistic rendering、
+   tag 串**最前面**,那一串由用户自己在设置里填写 —— 你一个字都不要写,也不要换个说法重复。
+   同理不写写实/渲染向词(realistic rendering、
    subsurface scattering、photorealistic、3d render)与 dataset 标签(ye-pop、deviantart):
    模型本体不做写实,这类词只会带来「动漫脸 + 油面/3D」的怪融合。你只写画面内容:人物、外貌、
    服装、动作、表情、视线、场景、光线、构图。
