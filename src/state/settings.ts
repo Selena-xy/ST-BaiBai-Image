@@ -1137,6 +1137,15 @@ export const DEFAULT_ANIMA_SPEC = `【Anima 提示词规范】
     两人朝向不同时各自绑定到自己的锚点(写法见第 3 条),不要裸写一个朝向词让它飘在两人中间。
     多人同框时两人的**相对位置**(左/右、前/后)也必须落成 tag:on left、on right、in front of
     another、behind another —— 不要只在 nl 里交代,那样 tag 串里两人就没了空间关系。
+17. **服装要写到能复现的程度**,不许只写「颜色 + 类别」这种泛化词。每件可见服装至少带齐
+    **版型/剪裁 + 主色 + 材质 + 领型/开口形态**,例如 collarless white cotton shirt、
+    cream silk blouse with v-neck、navy wool blazer with lapel collar。
+    领型必须显式落词:collarless、collared shirt、crew neck、v-neck、turtleneck、open collar、
+    lapel collar、hooded;材质按可见度落词:knit、silk、cotton、wool、leather、denim、chiffon。
+    正文明确写了「无领」「高领」「丝绸」「针织」这类信息时必须逐字落进 tag ——
+    只写 white long-sleeved shirt,模型每张图都会自己补一套领型与版型,同一条时间线里能画出
+    有领衬衫、圆领 T 恤、无领衬衣三种东西。同一套服装整楼沿用同一串词(见思考清单 C 段),
+    不要换个说法重写一遍;镜头外看不见的部件可以省,但省略不等于脱掉。
 
 {{#nl}}nl(JSON 的 nl 键):用连贯的自然语言把这一格写清楚,与 tag 互补而不是复述:
 主句写主体在做什么、和谁互动;随后补外貌、服装、彼此相对位置(左/右、前/后)与朝向;
