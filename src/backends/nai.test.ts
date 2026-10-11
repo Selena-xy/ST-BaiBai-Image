@@ -169,22 +169,27 @@ describe('Anima 单串风格', () => {
   const anima = (overrides: Partial<NaiSettings> = {}): NaiSettings =>
     nai({ promptStyle: 'anima', ...overrides });
 
-  it('兜底质量词是空串:不把 NAI 官方词塞进 Anima 的提示词', () => {
-    // Anima 不认 very aesthetic / masterpiece / no text,塞进去只会稀释画面内容
-    expect(fullPositivePrompt(anima(), '1girl, sitting')).toBe('1girl, sitting');
-    // 同模型下 nai 风格照旧拿到官方词(证明差别确实来自 promptStyle)
+  it('兜底质量词是 Anima 官方前缀,且排在整个 tag 串最前', () => {
+    // Anima 的 tag section 顺序是 [质量/年代/meta/安全] 打头,官方推荐正面前缀就是
+    // masterpiece, best quality;NAI 那串(very aesthetic / no text)Anima 不认。
+    expect(fullPositivePrompt(anima(), '1girl, sitting')).toBe(
+      'masterpiece, best quality, year 2025, newest, 1girl, sitting',
+    );
+    // 同模型下 nai 风格照旧拿到官方词、且质量词在最后(证明差别确实来自 promptStyle)
     expect(fullPositivePrompt(nai(), '1girl, sitting')).toContain('masterpiece');
   });
 
-  it('用户显式绑定的质量词仍然生效(解析链前两级不因 anima 失效)', () => {
-    expect(fullPositivePrompt(anima({ qualityTags: 'best quality' }), '1girl')).toBe('1girl, best quality');
-    expect(fullPositivePrompt(anima({ qualityTags: '   ' }), '1girl')).toBe('1girl');
+  it('用户显式绑定的质量词仍然生效,并同样被提到最前(解析链前两级不因 anima 失效)', () => {
+    expect(fullPositivePrompt(anima({ qualityTags: 'best quality' }), '1girl')).toBe('best quality, 1girl');
+    expect(fullPositivePrompt(anima({ qualityTags: '   ' }), '1girl')).toBe(
+      'masterpiece, best quality, year 2025, newest, 1girl',
+    );
   });
 
   it('nl 无条件接在 tag 串之后,不看模型是否支持 Character Prompts', () => {
     // NAI3 不支持 char captions,但 anima 的单串口径与那条能力无关
     const out = fullPositivePrompt(anima({ model: 'nai-diffusion-3' }), '1girl', 'She sits by the window.');
-    expect(out).toBe('1girl. She sits by the window.');
+    expect(out).toBe('masterpiece, best quality, year 2025, newest, 1girl. She sits by the window.');
   });
 
   it('不产 char_captions:角色提示无处安放,内容只能落在 base_caption', () => {
@@ -196,7 +201,7 @@ describe('Anima 单串风格', () => {
     });
     const v4 = p.v4_prompt as { caption: { base_caption: string; char_captions: unknown[] } };
     expect(v4.caption.char_captions).toEqual([]);
-    expect(v4.caption.base_caption).toBe('2girls, classroom. Two girls in a classroom.');
+    expect(v4.caption.base_caption).toBe('masterpiece, best quality, year 2025, newest, 2girls, classroom. Two girls in a classroom.');
   });
 
   it('尺寸吸附:anima + 开关开时吸到网关三档,关或非 anima 时原样下发', () => {

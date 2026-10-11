@@ -346,20 +346,29 @@ export function naiArtistPrompt(nai: NaiSettings): string {
 }
 
 /**
+ * Anima 的固定正面前缀:[质量] + [年代],两段都排在 tag 串最前(见 fullPositivePrompt)。
+ * 依据 Anima 模型卡:官方推荐的正面前缀就是 masterpiece, best quality(scores 那套在
+ * 2.9B 的 dataset 里没有,不写),年代词则把画风钉在近期作品上 —— 不写会得到
+ * very plain and neutral 的老动画质感。规范里明令模型自己一个质量词都不许写,
+ * 全靠这一串统一附加,所以它必须非空。
+ */
+const ANIMA_QUALITY_TAGS = 'masterpiece, best quality, year 2025, newest';
+
+/**
  * 正面质量词解析链:配方绑定值 → 渠道覆盖值(qualityTags)→ 内置默认。
  * 任一级空串(或纯空白)= 跟随下一级。内置默认当前 = 模型官方词;
  * 以后插件要换成自己的精选默认,只改 naiDefaultQualityTags,链结构不变。
  *
- * anima 风格的兜底是**空串**:那份规范明令禁止模型自己写质量词,插件也不该在背后
- * 追加 NAI 官方那串(very aesthetic / masterpiece / no text)—— Anima 不认这些词,
- * 它们只会稀释画面内容。前两级仍然生效:用户/配方显式绑定的质量词是他自己的选择。
+ * anima 风格的兜底是 ANIMA_QUALITY_TAGS(Anima 官方口径的短前缀)。绝不能回落到
+ * NAI 那一串 —— very aesthetic / no text 这类词 Anima 不认,只会稀释画面内容。
+ * 前两级仍然生效:用户/配方显式绑定的质量词是他自己的选择。
  */
 export function naiQualityTags(nai: NaiSettings): string {
   const bound = naiActivePreset(nai)?.quality.trim();
   if (bound) return bound;
   const override = nai.qualityTags.trim();
   if (override) return override;
-  return nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(nai.model);
+  return nai.promptStyle === 'anima' ? ANIMA_QUALITY_TAGS : naiDefaultQualityTags(nai.model);
 }
 
 /** 负面提示词解析链:配方绑定值 → 渠道覆盖值(undesiredContent)→ 内置默认(模型官方负面词)。 */
@@ -369,11 +378,14 @@ export function naiUndesiredContent(nai: NaiSettings): string {
 }
 
 /**
- * 正向完整 prompt:画师串在最前,画面 tag 居中,质量词在最后。
- * - 画师串 = 画风配方库当前选中条目(未选则无)。放最前是因为它决定整幅画的画风基调,
- *   NAI 对靠前 tag 的权重更高;
- * - 质量词 = 配方绑定值优先,其次渠道覆盖值(qualityTags),都留空则按模型取官方词
- *   (见 naiQualityTags)。
+ * 正向完整 prompt。顺序按 promptStyle 分两套:
+ * - nai:画师串在最前,画面 tag 居中,质量词在最后。画师串放最前是因为它决定整幅画的
+ *   画风基调,NAI 对靠前 tag 的权重更高;
+ * - anima:质量/年代词在最前,画师串居中,画面 tag 收尾 —— 这正是 Anima 模型卡的
+ *   tag section 顺序([质量/年代/meta/安全] → [人数] → [角色] → [作品] → [画师] → [general])。
+ *   质量词与画师串同样由渠道附加,模型自己一个字都不写(见 DEFAULT_ANIMA_SPEC 第 6 条)。
+ * - 画师串 = 画风配方库当前选中条目(未选则无);质量词 = 配方绑定值优先,其次渠道覆盖值
+ *   (qualityTags),都留空则按风格/模型取默认(见 naiQualityTags)。
  *
  * ⚠ 本函数在 buildNaiParameters(v4_prompt 的来源)与 generateNaiImage 的顶层 input
  * 字段处各调一次,两处必须同源。拼装改动一律留在本函数内部——在某个调用点单独加料会让
@@ -382,7 +394,8 @@ export function naiUndesiredContent(nai: NaiSettings): string {
 export function fullPositivePrompt(nai: NaiSettings, prompt: string, nl = ''): string {
   const artist = naiArtistPrompt(nai);
   const quality = naiQualityTags(nai);
-  const tags = [artist, prompt.trim(), quality].filter(Boolean).join(', ');
+  const ordered = nai.promptStyle === 'anima' ? [quality, artist, prompt.trim()] : [artist, prompt.trim(), quality];
+  const tags = ordered.filter(Boolean).join(', ');
   // anima 是单串口径:nl 无条件接在 tag 串之后。这条链上没有 characters[] 可以分摊,
   // 自然语言就是主体本身,不该再按「模型是否支持 Character Prompts」去判断。
   const nlAllowed = nai.promptStyle === 'anima' || naiSupportsCharacterPrompts(nai.model);
