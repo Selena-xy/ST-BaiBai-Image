@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { autoTagProfile, buildAutoTagMessages, expandNlSections } from '@/autoTag/prompt';
 import {
   activeComfyPreset,
+  DEFAULT_ANIMA_SPEC,
+  DEFAULT_ANIMA_THINKING,
+  DEFAULT_JAILBREAK_PROMPT,
   DEFAULT_NAI_V5_SPEC,
   DEFAULT_NAI_V5_THINKING,
   settings,
@@ -24,8 +27,21 @@ function prompts(overrides: Partial<AutoTagPrompts> = {}): AutoTagPrompts {
     comfyThinking: '',
     naiThinking: '',
     naiV5Thinking: '',
+    animaSpec: '',
+    animaThinking: '',
     ...overrides,
   };
+}
+
+/**
+ * 剥掉置顶的破限词 system 段。
+ *
+ * 内置破限词自 v0.3.2 起换成 NVWA 那套,正文里自带「成年人」「十八岁」这类词——它是通用
+ * 安全声明,不属于任何一个后端的规范/思维链。下面几条「NAI 不该出现」的断言钉的是规范与
+ * 思维链,不剥掉破限词会假失败。
+ */
+function withoutJailbreak(text: string): string {
+  return text.replace(DEFAULT_JAILBREAK_PROMPT, '');
 }
 
 function context(): STContext {
@@ -416,7 +432,7 @@ describe('auto tag prompt', () => {
       expect(text).toContain('若正文明确为显式 NSFW 场景');
       expect(text).toContain('若本图是显式 NSFW 场景');
       expect(text).not.toContain('若本图协议含 negative 键');
-      expect(text).not.toContain('成年人');
+      expect(withoutJailbreak(text)).not.toContain('成年人');
       // NAI 侧用户没有白痘问题,不引入这条禁令。
       expect(text).not.toContain('白皙肤色词');
       expect(text).not.toContain('白皙词一律禁止');
@@ -432,7 +448,7 @@ describe('auto tag prompt', () => {
       expect(text).toContain('若正文明确为显式 NSFW 场景');
       expect(text).toContain('若本图是显式 NSFW 场景');
       expect(text).not.toContain('若本图协议含 negative 键');
-      expect(text).not.toContain('成年人');
+      expect(withoutJailbreak(text)).not.toContain('成年人');
       expect(text).not.toContain('白皙肤色词');
     } finally {
       settings.defaultBackend = oldBackend;
@@ -1006,8 +1022,13 @@ describe('自然语言条件段 expandNlSections', () => {
   });
 
   // 内置文本里的标记一旦写错(漏闭合、错拼),整段会连标记带内容原样漏给模型
-  it.each([true, false])('内置 NAI 规范与思维链展开后不留任何标记(nl=%s)', nlOn => {
-    for (const text of [DEFAULT_NAI_V5_SPEC, DEFAULT_NAI_V5_THINKING]) {
+  it.each([true, false])('内置规范与思维链展开后不留任何标记(nl=%s)', nlOn => {
+    for (const text of [
+      DEFAULT_NAI_V5_SPEC,
+      DEFAULT_NAI_V5_THINKING,
+      DEFAULT_ANIMA_SPEC,
+      DEFAULT_ANIMA_THINKING,
+    ]) {
       expect(expandNlSections(text, nlOn)).not.toMatch(/\{\{[#^/]nl\}\}/);
     }
   });
@@ -1194,27 +1215,100 @@ describe('NAI「生成自然语言」开关与渠道画幅锁', () => {
       settings.nai.model = 'nai-diffusion-4-5-full';
       settings.nai.naturalLanguage = true;
       settings.nai.orientationLock = 'auto';
-      expect(autoTagProfile()).toEqual({ naiCharPrompts: true, nl: true, lockedSize: null });
+      settings.nai.promptStyle = 'nai';
+      expect(autoTagProfile()).toEqual({ naiCharPrompts: true, anima: false, nl: true, lockedSize: null });
 
       settings.nai.naturalLanguage = false;
       settings.nai.orientationLock = 'portrait';
-      expect(autoTagProfile()).toEqual({ naiCharPrompts: true, nl: false, lockedSize: 'portrait' });
+      expect(autoTagProfile()).toEqual({
+        naiCharPrompts: true,
+        anima: false,
+        nl: false,
+        lockedSize: 'portrait',
+      });
 
       // 单串分支(NAI4)的协议本来就不写 nl,开关对它不起作用
       settings.nai.model = 'nai-diffusion-4-full';
       settings.nai.naturalLanguage = true;
-      expect(autoTagProfile()).toMatchObject({ naiCharPrompts: false, nl: false });
+      expect(autoTagProfile()).toMatchObject({ naiCharPrompts: false, anima: false, nl: false });
 
-      // ComfyUI:自然语言与画幅锁都取当前工作流
+      // anima 风格:char captions 整条链下线(naiCharPrompts 恒 false),
+      // nl 改由渠道级的 naturalLanguage 决定 —— 这是「nl 只有一个开关」的落点。
+      settings.nai.promptStyle = 'anima';
+      settings.nai.naturalLanguage = true;
+      expect(autoTagProfile()).toEqual({
+        naiCharPrompts: false,
+        anima: true,
+        nl: true,
+        lockedSize: 'portrait',
+      });
+
+      settings.nai.naturalLanguage = false;
+      settings.nai.orientationLock = 'auto';
+      expect(autoTagProfile()).toEqual({
+        naiCharPrompts: false,
+        anima: true,
+        nl: false,
+        lockedSize: null,
+      });
+
+      // anima 只认 NAI 渠道:切到 ComfyUI 后 anima 归 false,开关回到工作流那一份
       settings.defaultBackend = 'comfyui';
       state.preset.naturalLanguage = true;
       state.preset.orientationLock = 'landscape';
-      expect(autoTagProfile()).toEqual({ naiCharPrompts: false, nl: true, lockedSize: 'landscape' });
+      expect(autoTagProfile()).toEqual({
+        naiCharPrompts: false,
+        anima: false,
+        nl: true,
+        lockedSize: 'landscape',
+      });
 
       state.preset.naturalLanguage = false;
       state.preset.orientationLock = 'auto';
-      expect(autoTagProfile()).toEqual({ naiCharPrompts: false, nl: false, lockedSize: null });
+      expect(autoTagProfile()).toEqual({
+        naiCharPrompts: false,
+        anima: false,
+        nl: false,
+        lockedSize: null,
+      });
     } finally {
+      state.restore();
+    }
+  });
+
+  it('anima 风格整套换成 Anima 的规范与思维链,不动 nai 风格那一对', async () => {
+    const state = snapshot();
+    const oldStyle = settings.nai.promptStyle;
+    try {
+      settings.defaultBackend = 'nai';
+      settings.nai.model = 'nai-diffusion-5-full';
+      settings.nai.naturalLanguage = true;
+
+      settings.nai.promptStyle = 'nai';
+      let messages = await buildAutoTagMessages(context(), 1, options(), null);
+      expect(pick(messages, NAI_SPEC_MARK).length).toBeGreaterThan(0);
+      expect(messages.some(m => m.content.includes('【Anima 提示词规范】'))).toBe(false);
+
+      settings.nai.promptStyle = 'anima';
+      messages = await buildAutoTagMessages(context(), 1, options(), null);
+      const spec = pick(messages, '【Anima 提示词规范】');
+      const thinking = pick(messages, THINKING_MARK);
+      // 协议里的 characters[] 段整套消失:anima 单串口径没有角色槽位
+      expect(messages.some(m => m.content.includes(NAI_SPEC_MARK))).toBe(false);
+      expect(spec).toContain('单串输出');
+      expect(thinking).toContain('单串输出');
+      // 示例里的 negative 键也不留(anima 站不接收负面词)
+      expect(pick(messages, CONTRACT_MARK)).not.toContain('"negative"');
+
+      // 关掉「生成自然语言」后条件段翻面:不写 nl 键,内容压回短 tag
+      settings.nai.naturalLanguage = false;
+      messages = await buildAutoTagMessages(context(), 1, options(), null);
+      const offSpec = pick(messages, '【Anima 提示词规范】');
+      expect(offSpec).not.toMatch(/\{\{[#^/]nl\}\}/);
+      expect(offSpec).toContain('只输出 position 与 tag');
+      expect(pick(messages, THINKING_MARK)).not.toMatch(/\{\{[#^/]nl\}\}/);
+    } finally {
+      settings.nai.promptStyle = oldStyle;
       state.restore();
     }
   });

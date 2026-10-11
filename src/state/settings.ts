@@ -241,6 +241,12 @@ export interface NaiEndpoint {
 }
 
 /** NAI 连接与出图参数。接入点(地址+密钥)可存多条,见 endpoints。 */
+/**
+ * NAI 渠道的提示词风格。只决定「写给模型的规范与输出结构」,请求协议两者完全相同。
+ * 见 NaiSettings.promptStyle 与 DEFAULT_ANIMA_SPEC。
+ */
+export type NaiPromptStyle = 'nai' | 'anima';
+
 export interface NaiSettings extends BackendConn {
   /**
    * 接入点列表。**不变式:恒非空,且必含内置官方那条**(normalize 缺则补回列表首位)。
@@ -310,6 +316,23 @@ export interface NaiSettings extends BackendConn {
   naturalLanguage: boolean;
   /** 画幅锁(渠道级,面板上与横竖尺寸并排);语义见 size.ts 的 OrientationLock。 */
   orientationLock: OrientationLock;
+  /**
+   * 提示词风格:**只换「写给模型的规范与输出结构」,不换请求协议**——
+   * 两者都走同一条 NAI 的 generate-image。
+   * - nai  :Base Prompt + 每角色原生 Character Prompts,给真 NAI 4.5/V5;
+   * - anima:单串输出、自然语言为主体、角色外貌全部写进主体,给后端跑 Anima(Qwen 链路)的
+   *         NAI 兼容站(如 latent.moe)。
+   * 选 anima 后这条渠道**只出 Anima 口径的提示词**:不产 characters、不发 char_captions、
+   * 不塞 NAI 官方质量词、不写 :: 权重与反斜杠转义括号。
+   */
+  promptStyle: NaiPromptStyle;
+  /**
+   * 尺寸吸附到该网关实际提供的三档(竖 920×1536 / 方 1024×1024 / 横 1536×920)。
+   * **只在 promptStyle === 'anima' 时生效**——官方 NAI 支持任意 64 倍数尺寸,吸附会画蛇添足。
+   * 开:本地先按宽高比吸附,面板填的尺寸与实际拿到的才对得上(见 nai.ts 的 snapGatewayAspect);
+   * 关:原样下发,由网关自行处理。
+   */
+  sizeSnap: boolean;
 }
 
 /** 界面偏好里要跨设备同步的部分;activePage 等纯本机临时态不在此。 */
@@ -989,6 +1012,300 @@ Example (小雪 is the principal character and has a library profile; 三年级�
 {{#nl}}{"position":"P2","tag":"2girls, rooftop, sunset, medium shot, foot on hand","nl":"Two girls on a rooftop at sunset, one pinning the other's hand under her foot.","characters":[{"name":"小雪","tag":"girl, long black hair, blue eyes, white dress, source#stepping on","nl":"The girl on the left presses her opponent's hand down with one foot."},{"name":"三年级队长","tag":"girl, short brown hair, amber eyes, grey training uniform, lying on ground, surprised, looking up, target#stepped on","nl":"The other girl lies on the ground on the right, her hand pinned, staring up in shock."}],"size":"landscape"}{{/nl}}{{^nl}}{"position":"P2","tag":"2girls, rooftop, sunset, medium shot, foot on hand","characters":[{"name":"小雪","tag":"girl, long black hair, blue eyes, white dress, source#stepping on"},{"name":"三年级队长","tag":"girl, short brown hair, amber eyes, grey training uniform, lying on ground, surprised, looking up, target#stepped on"}],"size":"landscape"}{{/nl}}`;
 
 /**
+ * Anima 规范内置默认(settings.nai.promptStyle === 'anima')。
+ *
+ * 与 DEFAULT_NAI_V5_SPEC 的根本差别:那份是给真 NAI 4.5/V5 的「Base + 原生 Character
+ * Prompts」双结构写的;这份给的是「同一条 NAI 协议、后端却是 Anima(Qwen 链路)」的兼容站
+ * (如 latent.moe)——单串输出、自然语言为主体、角色外貌全部写进主体。
+ *
+ * 三条硬约束都来自实测/该站的行为:
+ * - 该站的 characterPrompts 区域绑定位没有等价物,拆 Base/Character 反而把外貌挤到次要位置;
+ * - 它不解析 NAI 的词法(:: 权重、source#/target#、圆括号转义),写了只会被当普通字符;
+ * - Anima 读自然语言远强于读 danbooru 词堆,故 nl 是主要表达载体、tag 只作锚点。
+ *
+ * {{nlLang}} 由 prompt.ts 展开为 English(中文选项已下线,该宏留给自定义模板);
+ * 自然语言开关(settings.nai.naturalLanguage)由 {{#nl}}…{{/nl}} / {{^nl}}…{{/nl}} 条件段承载:
+ * 关闭时本份只剩 tag 相关条款,并自带「本次不产出 nl」的定向指令——0.3.x 那份靠运行时追加
+ * ANIMA_NL_OFF_OVERRIDE 的做法已废弃:一份文本两侧自洽,不必维护两份会漂的副本。
+ */
+export const DEFAULT_ANIMA_SPEC = `【Anima 提示词规范】
+本渠道后端是 Anima 2.9B(CircleStone Labs,基于 Qwen 文本编码器),动漫/插画专向,知识截止 2026-07。
+它在 Danbooru 风格 tag、自然语言 caption、以及两者的组合上训练过——tag 定身份与属性,
+自然语言补关系、空间与氛围,两者并用即可,不必把二者对立。
+{{#nl}}本链路是**单串输出**:你输出 tag 键与 nl 键,发送时 nl 会接在 tag 串之后拼成同一个正向 prompt;
+不产出 characters,也不产出 negative。
+{{/nl}}{{^nl}}本链路是**单串输出、且本次只出 tag**:你只输出 position 与 tag 两个键,不写 nl 键,
+也不产出 characters 与 negative。
+{{/nl}}
+tag(JSON 的 tag 键):英文小写、逗号分隔,用空格代替下划线(仅 score_* 用下划线)。按官方 section 顺序排列:
+[质量/时间/安全] → [人数] → [角色(同人:角色名+作品名)] → [画师(@)] → [general:外貌/服装/动作/表情/视线/场景/光线]
+- **固定正面零重复(重要)**:质量词(masterpiece、best quality 等)、年代词(year 2025、newest 等)、
+  画师串与 @画师、uncensored、no text、highres / absurdres 这类 meta tag、score_*,全部由渠道
+  「固定正面」统一附加 —— **你一个字都不要写,也不要换个说法重复**(不要再写一遍 masterpiece quality
+  或 with no text)。同理不写写实/渲染向词(realistic rendering、subsurface scattering、photorealistic、
+  3d render)与 dataset 标签(ye-pop、deviantart):模型本体不做写实,这类词只会带来
+  「动漫脸 + 油面/3D」的怪融合。你只写画面内容:人物、外貌、服装、动作、表情、视线、场景、光线、构图。
+- **安全 tag 必须由你判定并写在 tag 的第一位**,四档判据:
+  · safe    衣着完整、无性部位外露、无性行为,也没有明显的性暗示视角或姿态(日常、战斗、拥抱、普通亲吻)。
+  · sensitive 无性部位外露,但暴露度或暧昧度明显升高——泳装、内衣、睡衣、大面积露背露腿、湿身透光、
+              贴身紧绷、胸臀成为画面焦点、跨坐或纠缠式亲密、性暗示视角。
+  · nsfw    性部位已可见(乳房/乳头、臀部、下体),或全裸/半裸,但画面本身不是性行为过程。
+  · explicit 画面正在表现性行为——交合、口交、手交等,或性器接触的特写。
+  判定规则:按「这张图最终画出来是什么」定,不按正文氛围、不按情绪定;一张图只写一个档;
+  拿不准取内容更重的一档(本链路没有负向手段,档位写低会让内容与档位互相打架,
+  模型常见反应是加衣、遮挡或画出畸形);不许为了保险把明确的性行为写成 safe / sensitive;
+  无人物画面(纯风景/静物)默认 safe;前缀里的 uncensored 只表示不画马赛克,不改档位判定;
+  同一楼不同图可以不同档,不许一路 safe 到底。
+- **可选元词只许用白名单里的一个**(0~1 个):anime screenshot、official art、concept art。
+  monochrome、sketch、greyscale、lineart 这类会改写渲染方式的词属于风格词,一律不写。
+- 权重语法**有效**:(tag:权重),如 (chibi:2)。Anima 需要比 SDXL 更高的权重,想要明显效果一般给 1.5 以上,
+  但别超过 2.5 —— 本链路 CFG 固定在 1,权重只作用在文本嵌入上,救不回构图。
+- 画师 tag 必须带 @ 前缀(如 @nnn yryr);不加 @ 效果会很弱。画师串已由固定正面提供,你不要再写。
+- **每个 tag 都保持短词形态:1–4 个词,逗号分隔**。禁止用 and / with / wearing / looking 把多个特征
+  串成一条长句。角色特征用「短 tag + 归属」表达,示例对错分明:
+  ✔ white dress on black hair girl, red dress on silver hair girl, black hair girl smiling, cute
+  ✘ girl with two-tone hair and light blue to silver long hair and blue eyes and fair skin and slender
+    and butterfly hair ornament wearing blue and white asymmetrical dress and dark blue waist ribbon
+  长句会把人数(1boy 1girl、2girls)这类关键 tag 稀释掉,模型就更容易多画或少画人;
+  它还挤占提示词预算、让整串无法阅读与手改。
+- **同一个概念只写一次**:身份、服装、动作、表情都不要换个说法重复一遍
+  (例如既写 shorekeeper (wuthering waves) 又写 shorekeeper cosplay、(cosplay) 与 cosplay 并列);
+  **关键 tag 必须齐全**:安全、人数、景别、身份、外貌、动作、表情、视线、场景、光线(光源/时间/色调
+  至少落一个具体词)。整体 25~40 个短 tag:只有十来个词会得到平庸、简单的背景;堆到四五十条、
+  或写成整段长句,同样会互相稀释。
+- **画幅方向只写在 size 键里**,不要把 portrait / landscape 当普通 tag 写进 tag 串。
+- 禁止 NAI 专有词法:不写 source# / target# / mutual#、不写花括号权重、不要用反斜杠转义圆括号
+  (那是 ComfyUI 的权重语法写法,Anima 不解析,反斜杠只会原样进入语义)。
+- **本链路不产出负面词,该站也不接收**:想要什么就写清楚,不想要的一个字都别写,
+  不要写 no xxx / without xxx 这类负向写法。
+- 不写 XML、不要嵌套子标签(bbi_image / tag / nl 等)。
+
+{{#nl}}nl(JSON 的 nl 键):用连贯的自然语言把这一格写清楚,与 tag 互补而不是复述:
+主句写主体在做什么、和谁互动;随后补外貌、服装、彼此相对位置(左/右、前/后)与朝向;
+最后写镜头景别、光线时间与色调氛围。纯自然语言写法要写足两句以上——过短的 prompt 会出意外结果。
+角色名与作品名按标准英文大小写书写。写成画面,不要堆形容词,也不要把 tag 当同义词再罗列一遍。
+{{/nl}}{{^nl}}本次不产出 nl(定向指令,优先级高于上文所有关于 nl 的要求):
+- 每张图只保留 position 与 tag:不要写 nl 键,也不要把自然语言句子混进 tag 串。
+- 上文所有关于 nl 的要求本次一律作废(包括 nl 写什么、怎么写、用哪种语言、
+  每个角色在 nl 里单独交代、建档时附一句 nl 简述)。
+- 原本交给 nl 的内容要压回 tag:与谁互动、彼此相对位置(左/右、前/后)与朝向、景别、
+  光线时间与色调氛围,全部写成 1–4 个词的短 tag;不要因为少了 nl 就把这些丢掉。
+{{/nl}}
+角色外貌与身份:
+- 出现在【角色固定外貌库】里的角色,把库中字段值照抄进 tag{{#nl}} 与 nl{{/nl}},用词一字不改
+  (库里写 long black hair 就写 long black hair,不要换成 black long hair 或自行加词)。
+- **每个出场角色都必须有配套的外貌描述**——只写名字不写外貌会让模型混淆,多人时尤其明显。
+- 同人角色:在人数之后写该角色在 Danbooru 上的**实际身份 tag**,再写该角色的外貌/服装/动作;
+  身份同时写进档案的 fandom 字段。形态以 Danbooru 实际 tag 名为准:
+  · 自带作品消歧的照写括号形态 —— shorekeeper (wuthering waves)(作品名不拆开);
+  · 不带括号的裸名则在它后面补一个作品 tag —— oomuro sakurako, oomuro-ke。
+  原形里的下划线换成空格,连字符保留(oomuro-ke 不写成 oomuro ke);不得自造、不得音译。
+  **不要用反斜杠转义圆括号** —— 那是 ComfyUI 的重量语法写法,Anima 不解析,
+  反斜杠只会原样进入语义。作品名不确定时按原创处理,不猜。
+- **造型身份 tag(cos、戏服、常驻伪装)**:角色本人判不出所属作品、但他穿戴的可复用造型明确对应某个作品时,
+  照上一条写身份 tag —— 造型像谁就写谁的身份 tag,位置同样在人数之后、外貌之前。
+  这个身份 tag 写进档案的 fandom 字段(角色管理面板上的「同人身份 tag」),此后每楼逐字照抄。
+  它是**当前造型**的身份,不是角色本人的出身:造型解除或更换的那一楼,必须用一条 changes
+  更新该角色的 fandom(换造型就改写,卸下造型且本人是原创就清空成空串)。
+  有作品归属的造型不要另行描述服装 —— 身份 tag 本身就会带出该作品的原设服装,凭空加词只会让它走形。
+  尤其禁止把暴露向词(backless、cleavage、halterneck、see-through、lingerie)与胸部尺寸词
+  (big breasts、large breasts、huge breasts、gigantic breasts、flat chest、busty)写进档案的任何字段:
+  档案每楼照抄,写进去之后每张图都变成那样,正文没要求也叫不回来。
+  只有正文明确给出的部件(雨披、外套、破损、湿透、换上的配件)才按临时状态画进画面,不进档案。
+- 原创角色不要自造英文名,也不要写孤立的中文名或拼音——直接用外貌描述与位置称谓区分即可。
+{{#nl}}- 建档(changes 里 field:"new")时,除 hair/eyes 等字段外,顺带给一句英文 nl 简述该角色的固定外貌,
+  供角色库与后续楼层作参考(本链路不把它当 char_caption 发出,但有它档案才完整)。
+{{/nl}}- 同一角色的固定外貌整张图只写一遍——重复整串会让模型以为画面里有多个同样的人。
+
+多人画面(两人及以上):
+- 人数 tag 必须明确(2girls、1boy 1girl 等),缺了模型会漏画或多画。
+{{#nl}}- 每个角色在 nl 里单独交代:位置、外貌、服装、动作、表情、视线各写清楚,不要混成一句。
+{{/nl}}{{^nl}}- 没有 nl 可分担:每个角色的位置、外貌、服装、动作、表情、视线只能靠 tag 交代,
+  各自的特征词必须紧邻该角色自己的绑定词,不能只写动作不写归属。
+{{/nl}}- tag 里角色各自的服装/动作/表情必须绑到该角色的特征词上(white dress on black hair girl 这种写法),
+  不要裸写一堆积件让模型自己分配——裸写会把特征随机安到某人头上,或让两人互相串味。
+  **绑定也要保持成一条条短 tag**,不要把一个人从头到脚串成一句(见上文「每个 tag 保持短词形态」)。
+- 多人共有的特征只写一次(两人都是长发就只写一个 long hair)。
+
+画面补全(重要):正文是小说,不是分镜脚本——它不会写镜头、光线、时代服饰这些「画出来才存在」的东西。
+你的职责不是转录正文,是把文字补全成一幅完整的画。以下四类分别对待:
+1. 画面语言(镜头、光线、色调、氛围)必须主动补全:每个画面都要给出景别
+   (close-up / upper body / medium shot / full body / wide shot 只写一个)、
+   光线与时间(soft sunlight、candlelight、moonlight、backlighting、golden hour 等)、
+   色调氛围(warm colors、cold colors、muted colors、high contrast 等)。
+   景别必须完整容纳本图的核心动作与接触点:核心发生在躯干以下(膝压、脚踩、坐在腿上、床上接触等)时,
+   不要用 close-up / upper body 把接触点裁掉,改用 medium shot / full body 或把接触点框全的局部特写。
+   选了 upper body / close-up 就不要再写鞋袜、裙长、腿部、全身姿态这类画面外看不见的要素。
+2. 时代与世界观必须先知判断再具体化:世界设定 > 角色/主角设定 > 正文里的称谓、身份、器物与环境。
+   有设定严格遵循;没有也从线索里主动选一个自洽、具体的时代或原创视觉体系。
+   地形、地面材质、天气痕迹、环境状态都是场景事实,没有依据就保持简洁,不要自行添加泥地、土路、积水、积雪。
+   正文只写「野外」就写 outdoors,只写「森林」就写 forest。
+3. 角色固定事实(性别、发色发型、瞳色、体型、标志性特征)严格照抄给定信息,不得发挥。
+4. 剧情事实(在场人物、动作、事件、关键道具)严格以正文为准:不加入正文没有的人物、动作或情节,
+   人数与正文一致,且是画面内可见的人数;镜头外的人不补进画面。
+
+画幅方向(size 键):先定景别与主体分布,再定方向。
+群像、远景、宽阔场景、横向互动写 landscape;单人、纵向站姿、特写、双人近距离构图写 portrait。
+wide shot 通常配 landscape,close-up / upper body 通常配 portrait;拿不准写 portrait。
+本链路竖/横的实际落点是 920×1536 / 1536×920(开启尺寸吸附时的两档):竖幅比常见比例更窄长,
+选 portrait 时给头顶与脚下留余量,别让 full body 卡到边缘。
+
+{{#nl}}语言:nl 一律用 {{nlLang}} 书写。
+{{/nl}}角色名一致性:档案里已建档的角色,凡在 tag{{#nl}}/nl{{/nl}} 里出现其名字,必须与档案逐字一致,不得音译或变体;
+但名字对画面本身的贡献有限,人物一致性主要靠外貌描述保证——每个角色都要有配套外貌,不要裸写名字。
+真要用名字,就把它与同一角色的外貌/位置绑在一起写,避免模型认不出谁是谁。
+
+禁止文字与标记:画面里不得出现任何文字、水印、签名、商标、logo、印章、伪文字或乱码符号。
+需要表现画纸、书本、卷轴、招牌、门牌、屏幕时,只写物件本身(book、closed book、billboard),
+一律留白或做模糊处理,不生成可读文字;
+墙壁/画架上成排的画稿只用简洁色块或模糊轮廓表示,不要逐张渲染细节——
+逐张画会退化成重复图案和伪文字。`;
+
+/**
+ * Anima 思维链内置默认,与 DEFAULT_ANIMA_SPEC 配套(槽位要填的字段必须在规范里有判据)。
+ * 结构对齐 ComfyUI 那份(三层:全局判断 → 逐图槽位 → 落笔自查),槽位去掉 negative,
+ * 另加「安全 tag」槽——Anima 的 safe/sensitive/nsfw/explicit 由模型按每张图的实际内容判定。
+ * 自然语言开关同样由 {{#nl}}/{{^nl}} 条件段承载。
+ */
+export const DEFAULT_ANIMA_THINKING = `【输出前思考清单】
+先在 <thinking> 与 </thinking> 之间按下面顺序过一遍,思考结束后再输出最终 JSON。
+除这一个 <thinking> 块与最终 JSON 外不得输出任何内容,也不要开第二个 <thinking> 块。
+全程只写结论,不写推演过程;每个判断一次定死,不写「A 还是 B」式的自问,定了就往下一格走。
+
+第 0 条|既定配置(一次判定,影响全楼)
+{{#nl}}   - 本链路是单串输出:tag 键 + nl 键,nl 会拼在 tag 串之后。
+{{/nl}}{{^nl}}   - 本链路是单串输出,且本次只出 tag:只写 position 与 tag 两个键。
+{{/nl}}   - 固定正面零重复:质量词、年代词(year 2025)、画师串与 @画师、uncensored、no text、highres 这类
+     meta 词、score_*、写实渲染词、dataset 标签,全由固定正面附加 —— 你一个字都不写、不重复、
+     也不在 tag{{#nl}} 或 nl{{/nl}} 里复述。你只写画面内容。
+   - 安全 tag 是唯一的内容刹车,逐图按画面实际内容判定,不许一路 safe 到底。
+   - 不产出负面词:不想要的一个字都别写,不要写 no xxx / without xxx。
+{{#nl}}   - nl 一律用英语书写(正文与上面的思考是中文也不例外):中文 nl 会被生图模型读得更差,
+     还要多花几倍 token。
+{{/nl}}{{^nl}}   - 本次不产出 nl:nl 键一律不写,原本交给 nl 的关系、相对位置(左/右、前/后)、景别、
+     光线时间与色调氛围,全部落成 1–4 个词的短 tag,一条都不能丢。
+{{/nl}}
+第一层|全局判断(整楼各做一次)
+
+A. 事实与状态
+   - 只给目标正文选图;此前上下文只用于理解人物、场景与连续性。
+   - 区分永久事实、应继承的临时状态(衣物穿脱程度、湿身/污渍、伤势、饰品、手持物)
+     与只属于单帧的表情/视线/姿势。没有明确的穿回、换装、解除、时间跳跃或场景切换,
+     不得把临时状态恢复成角色默认值。
+
+B. 角色清点与建档
+   - 逐个列出实际在场且有名有姓的角色,确认每人命中的同名库条目,或本次 field:"new"。
+     只有名字实际列在【角色固定外貌库】区块中的才算已建档;世界书/角色卡/正文里的设定只是建档来源。
+   - 库里没有、但属于正式角色(有设定或持续参与剧情)的,首次出场就建档,不论是否入画;一次性无名路人不建。
+   - 缺发色/发型/瞳色时一次性补全:hair 必须同时带颜色与长度/发型,eyes 必须带瞳色;
+     建档在本楼全程有效,不要给同一角色两套外貌。
+   - 同一行顺带判定原创还是同人:只有角色卡、世界书、正文或通行角色名能可靠指向某个已有作品时才判为同人,
+     证据不足按原创处理,不猜。判定为同人时,同一行定出模型可识别的英文 Danbooru 身份 tag:
+     自带作品消歧的写括号形态(shorekeeper (wuthering waves)),裸名的写角色名并另补作品 tag
+     (oomuro sakurako, oomuro-ke);下划线换空格、连字符保留、**不要反斜杠转义括号**。
+     该身份同时写进建档的 fandom 字段。角色本人判不出所属作品、但当前穿戴着某个作品的可复用造型
+     (cos、戏服、伪装)时,同样把**造型**的身份 tag 写进他的 fandom —— 面板上的「同人身份 tag」跟着造型走;
+     造型解除或更换的那一楼报一条 changes 更新它(本人是原创就置空串)。
+   - 永久变化(染发、剪发、留疤、永久变身等)写入 changes 并标出生效 P编号;
+     假发、美瞳、湿发、光照变色等临时状态不写。
+   - 例外:角色整段剧情都维持同一 cos/伪装造型(假发 + 美瞳)时,hair 与 eyes 按**造型外观**写 ——
+     这是每张图都要画的东西,留空会让模型每张自己随机;造型本身的身份 tag 按 C 段写进 fandom 字段、
+     服装视觉指纹写进 outfit 字段。造型解除或更换的那一楼,hair、eyes、fandom、outfit 四格一起按正文更新。
+   - 顺带查库中条目的 outfit/body/extra:若出现暴露向词(backless、cleavage、halterneck、see-through、
+     lingerie)或胸部尺寸词(big breasts、large breasts、huge breasts、gigantic breasts、flat chest、busty),
+     或与身份 tag 原设明显不符的服装描述,报一条 changes 把它们清成干净值。
+
+C. 服装时间线(每个在场角色一行:从 P 几起穿的是什么)
+   - 按正文 P 位置维护临时服装:没明确穿着就合理决定一次;没有穿脱/换装/损坏/时间跳跃就沿用上一状态。
+   - 每套冻结一份视觉指纹(版型/剪裁 + 主色 + 关键部件),相同状态全楼复用同一份,
+     不要退回 school uniform、dress、pantyhose 这类会被模型重新设计的笼统孤立词。
+   - 造型对应某个已有作品(cos、戏服、伪装成某角色)时,该造型的身份 tag(shorekeeper (wuthering waves)
+     这种括号形态)按 B 段写进该角色的 fandom 字段;服装以上述身份 tag 带出的原设为基准,
+     outfit 只记正文明确给出的部件(外套、配件、破损),不要自行描述版型与暴露程度,
+     尤其不得写暴露向词(backless、cleavage、halterneck、see-through、lingerie)与胸部尺寸词
+     (big breasts、large breasts、huge breasts、gigantic breasts、flat chest、busty) ——
+     它们会被逐楼照抄,把整套造型在每张图里都推向暴露或固定成某个尺寸。
+     造型解除或更换时,在生效的那一楼用 changes 同时更新该角色的 fandom 与 outfit。
+
+D. 时代与世界观(一次判断,全楼通用)
+   - 定一套具体、自洽的时代/文明/视觉体系并全楼沿用;证据少也要主动选一个,不得退回中性现代感。
+   - 这套判断只决定「怎么画」,不得借它把未知的场景事实具体化。
+
+E. 安全档位与风格口径(整楼定口径,逐图落值)
+   - 口径:按画面最终实际可见的裸露程度与行为程度定档,不按正文氛围、不按情绪;
+     拿不准取内容更重的一档 —— 本链路没有负向手段,档位写低会让内容与档位互相打架。
+   - 四档:safe 衣着完整、无性部位外露、无性行为与明显性暗示;sensitive 无性部位外露但暴露度或
+     暧昧度明显(泳装、内衣、睡衣、湿身透光、胸臀成为焦点、跨坐纠缠、性暗示视角);nsfw 性部位可见
+     或全裸半裸但非性行为过程;explicit 正在表现的性行为或性器接触特写。uncensored 只表示不画马赛克,
+     不改档位判定;无人物画面(纯风景/静物)默认 safe;同一楼不同图可以不同档。
+   - 元词最多一个,只能在白名单里挑:anime screenshot / official art / concept art。
+   - 固定正面那串(质量词、年代词、画师、uncensored、no text、meta 词、score_*)一个字都不写。
+
+F. 选段
+   - 候选必须是一个可见瞬间,有明确主体、动作或视觉状态和场景。纯对话只有在伴随值得画的
+     表情、肢体动作、人物关系或环境变化时才保留;只跳过没有视觉变化的对话、纯心理和过渡。
+   - 按视觉明确度、剧情重要度、动作完整度、彼此差异度排序,遵守任务协议给出的最少～最多数量:
+     下限大于 0 时从较次但仍可见的候选中补足;达到下限后,只要这一步剧情里还有彼此明显不同的
+     强画面(不同瞬间、不同场景或不同动作),就一并选出直到上限 —— 一楼上限就是让你画出这些
+     不同瞬间的,只挑最强的一张会把其余值得定格的画面全丢掉。
+     反过来也不要用同一事件的相邻动作、换镜头版本或同一瞬间的另一种写法去凑满上限。
+   - 给每张入选图选定 P编号:让画面所需事实刚刚完整成立、且尚未切换到下一场景的位置。
+   - 数量在这里就要卡死:写出 P 列表之前先数一遍,多于上限就当场砍到上限再往下走。
+
+第二层|逐张图槽位块(F 选定的每个 P 各写一块,不得合并、不得跨图共用)
+
+■ P<编号>
+  安全:<safe / sensitive / nsfw / explicit 四选一,按本图实际内容判定;落 tag 时写在第一位>
+  主体:<人数 tag + 在场角色名;无人物画面写 no humans>
+  核心动作:<谁的哪个身体部位接触了什么,先用中文点明接触点,再给英文写法>
+  景别:<close-up / upper body / medium shot / full body / wide shot 中只选一个,且必须完整容纳上面的接触点>
+  角色行(每个在场角色各一行):<角色名>|<身份:同人才填 Danbooru 身份 tag,原创写 原创>|<外貌,照抄库字段>|<本镜头可见服装>|<表情>|<视线>|<动作与位置>
+  画面语言:<光线与时间 + 色调氛围>
+  场景:<地点 + 画面里实际可见的关键道具>
+  元词:<最多一个,仅限 anime screenshot / official art / concept art;不用就写"-">
+  size:<portrait / landscape>(落点:竖 920×1536 / 横 1536×920;竖幅更窄长,给头顶脚下留余量)
+
+槽位要求:
+   - 每个槽位只写最终取值,一次定死。不写带问号的自问、不并列候选、不写完再推翻。
+   - 落 tag 时每个 tag 保持 **1–4 个词**的短形态,逗号分隔;禁止用 and / with / wearing / looking
+     把角色特征串成一条长句。人数 tag(1boy 1girl / 2girls)必须干净独立地出现在前面,
+     不要被长句稀释 —— 它是唯一能压住「多画一个人」的信号。
+   - 表情与视线必须从后端规范给出的标准 danbooru 词里挑,不得自创词组,两项都不留空;
+     多人画面每人各写一份,落 tag 时各自绑定,不得合并或裸写。
+   - 角色行每个在场角色各一行,配角也要写全。每行的表情与视线都必须是独立的英文词,
+     写成中文短语等于这一行没有表情词,落 tag 时该角色会被画成木脸。
+   - 服装照 C 段该角色当前状态的视觉指纹逐件写全,只写本景别看得见的部件;
+     镜头外不可见的可省略,但省略不等于脱掉,后续重新可见时必须恢复。
+   - 场景只写正文/设定能支持的事实;画面语言(光线、时间、色调)正文不会写,必须由你主动定。
+   - 细节密度:关键 tag(安全、人数、景别、身份、外貌、动作、表情、视线、场景、光线)缺一不可;
+     一块写完心里数一下,短 tag 不足 25 个就继续在「怎么画」的维度加料(构图、光线、色调、材质、景深),
+     不许用正文没有的新物件凑数。
+{{^nl}}   - 本次不产出 nl:与谁互动、相对位置(左/右、前/后)与朝向、景别、光线时间与色调氛围
+     必须全部落成 1–4 个词的短 tag。
+{{/nl}}
+第三层|落笔前自查(只核对,不改决定)
+   - tag 里有没有混进 :: 权重、source#/target#、反斜杠转义括号、质量词或 XML?有就删掉。
+{{#nl}}   - nl 是不是一张能一次拍下的完整画面,并与 tag 不冲突?
+{{/nl}}   - 每个在场角色在 tag{{#nl}} 与 nl{{/nl}} 里是不是都落到了自己的外貌、服装、动作、表情与视线?
+   - 人数与画面内可见人数一致?景别完整容纳核心接触点?size 与景别一致(拿不准写 portrait)?
+   - 安全 tag 选对了吗?按本图内容在 safe / sensitive / nsfw / explicit 里四选一,且写在 tag 第一位。
+   - tag 里有没有用 and / with / wearing 串成的长句?人数 tag 是不是干净独立、没被长句淹没?
+   - 场上的同人角色,身份 tag 写进 tag 了没有?形态对不对(括号形 shorekeeper (wuthering waves);
+     裸名则角色名+作品 tag),有没有误加反斜杠?
+   - tag 里有没有换个说法把同一个概念写了两遍?画幅方向有没有混进 tag 串?
+   - 前缀零重复:有没有写出或复述固定正面里的东西(质量词、年代词、画师名与 @、uncensored、no text、
+     highres 这类 meta 词、score_*)?有没有混进写实渲染词(realistic rendering、photorealistic、3d render)
+     或 dataset 标签(ye-pop、deviantart)?有就删掉。
+   - 元词有没有超出白名单(只许 anime screenshot / official art / concept art,最多一个)?
+   - 安全档位与画面实际内容相符吗?不是一路 safe 到底?拿不准时取的是更重的那一档?
+   - 短 tag 是不是落在 25~40 且关键 tag 齐全?有没有干瘪到十来个词(那会退化成简单背景)?
+{{^nl}}   - 本次不产出 nl:关系、相对位置、景别、光线与色调是不是都落成了短 tag?
+{{/nl}}   - 每个在场角色是不是都有配套的外貌描述,而不是只写了个名字?
+   - 有没有写下会让画面出现文字的物件细节(成排画稿、招牌、书页正文)?有就改成留白色块或模糊处理。
+   - 张数对不对?E 段定下几张就落几张,且每张都是彼此不同的瞬间。因为「怕凑数」而把本该
+     分开的多张压成一张,与拿同一瞬间的换镜头版本凑满上限,都是错的。`;
+
+/**
  * 自动 tag 请求的可编辑提示词集。各条留空 = 回落内置默认(与柏宝书自定义提示词同口径)。
  *
  * ⚠ 键名与设置页标签不是一一对应的:设置页里的「NAI 规范 / NAI 思维链」实际存在
@@ -1019,6 +1336,12 @@ export interface AutoTagPrompts {
   /** NAI 思维链(4.5/V5);留空回落内置默认(DEFAULT_NAI_V5_THINKING)。
    *  槽位块是 Base + 每角色块,与 comfy 那份的单串形态不同,不可互换。 */
   naiV5Thinking: string;
+  /** Anima 规范(NAI 渠道的 promptStyle === 'anima' 时用);留空回落内置默认(DEFAULT_ANIMA_SPEC)。
+   *  同一条 NAI 协议打给后端跑 Anima 的兼容站,规范整份换掉;同样支持 {{#nl}}/{{^nl}} 条件段。 */
+  animaSpec: string;
+  /** Anima 思维链(promptStyle === 'anima' 时用);留空回落内置默认(DEFAULT_ANIMA_THINKING)。
+   *  槽位块是「单串 tag + 一段 nl」,与 NAI 那份的 Base + 每角色块不同,不可互换。与「Anima 规范」配套。 */
+  animaThinking: string;
 }
 
 export interface ImageSettings {
@@ -1161,6 +1484,10 @@ function naiDefaults(): NaiSettings {
     activeArtistId: BUILTIN_NAI_ARTISTS[0]?.id ?? '',
     naturalLanguage: true,
     orientationLock: 'auto',
+    promptStyle: 'nai',
+    // 默认开:兼容站把尺寸按宽高比吸附成三档,本地不先吸附就会「面板填的与实际拿到的对不上」。
+    // 官方 NAI 不受影响 —— 它只在 anima 风格下生效。
+    sizeSnap: true,
   };
 }
 
@@ -1203,6 +1530,8 @@ function defaults(): ImageSettings {
         comfyThinking: '',
         naiThinking: '',
         naiV5Thinking: '',
+        animaSpec: '',
+        animaThinking: '',
       },
     },
     excludes: excludesDefaults(),
@@ -1290,6 +1619,28 @@ export function activeOrientationLock(): OrientationLock {
   if (settings.defaultBackend === 'nai') return settings.nai.orientationLock;
   if (settings.defaultBackend === 'comfyui') return activeComfyPreset().orientationLock;
   return 'auto';
+}
+
+/** 提示词风格选项(顺序即下拉顺序);NAI 面板与设置页共用这一份。 */
+export const NAI_PROMPT_STYLES: { value: NaiPromptStyle; label: string }[] = [
+  { value: 'nai', label: 'NAI 原生（Base + Character Prompts）' },
+  { value: 'anima', label: 'Anima 单串（自然语言为主）' },
+];
+
+/** 存量配置没有这个字段,一律回落 'nai'(= 改动前的行为),与 normalizeOrientationLock 同口径。 */
+export function normalizePromptStyle(value: unknown): NaiPromptStyle {
+  return value === 'anima' ? 'anima' : 'nai';
+}
+
+/**
+ * 这条 NAI 渠道是否按 Anima 口径出提示词。
+ *
+ * 判据只此一处:自动 tag 协议(autoTag/prompt.ts 的 autoTagProfile)、出图能力上报
+ * (generate.ts 的 backendStatus)、参数组装(backends/nai.ts)与 UI 都从这里取,
+ * 免得出现「协议说只出 tag、出图却还在发 char_captions」这类两处各判各的漂移。
+ */
+export function isAnimaNai(): boolean {
+  return settings.defaultBackend === 'nai' && settings.nai.promptStyle === 'anima';
 }
 
 /**
@@ -1678,6 +2029,9 @@ function normalizeNai(raw: unknown, def: NaiSettings): NaiSettings {
     // 老配置缺这两个字段:回落默认 = 开着自然语言、不锁方向,即改动前的行为
     naturalLanguage: typeof o.naturalLanguage === 'boolean' ? o.naturalLanguage : def.naturalLanguage,
     orientationLock: normalizeOrientationLock(o.orientationLock),
+    // 老配置缺这两个字段:回落 'nai' + 吸附开,即改动前的行为
+    promptStyle: normalizePromptStyle(o.promptStyle),
+    sizeSnap: typeof o.sizeSnap === 'boolean' ? o.sizeSnap : def.sizeSnap,
   };
 }
 
@@ -1815,6 +2169,8 @@ function normalize(raw: unknown): ImageSettings {
         comfyThinking: typeof rp.comfyThinking === 'string' ? rp.comfyThinking : legacyThinking,
         naiThinking: typeof rp.naiThinking === 'string' ? rp.naiThinking : legacyThinking,
         naiV5Thinking: typeof rp.naiV5Thinking === 'string' ? rp.naiV5Thinking : '',
+        animaSpec: typeof rp.animaSpec === 'string' ? rp.animaSpec : '',
+        animaThinking: typeof rp.animaThinking === 'string' ? rp.animaThinking : '',
       };
     })(),
   };

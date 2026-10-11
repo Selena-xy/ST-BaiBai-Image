@@ -104,8 +104,11 @@ export function backendStatus(): BackendStatus {
 
   if (backend === 'nai') {
     const model = settings.nai.model;
-    // 支持与否只看模型,与配没配齐无关:第三方要在出图前就知道该不该传 characters
-    const supportsCharacters = naiSupportsCharacterPrompts(model);
+    // 支持与否只看模型与风格,与配没配齐无关:第三方要在出图前就知道该不该传 characters。
+    // anima 是单串口径,整条链上没有 characters[]/char_captions 的位置 —— 上报 true 会让
+    // 第三方把角色提示词发进来,而出口只会把它丢掉。
+    const supportsCharacters =
+      naiSupportsCharacterPrompts(model) && settings.nai.promptStyle !== 'anima';
     const base = { backend, model, supportsCharacters };
     // 地址与 key 取**当前接入点**那一份(见 effectiveNai);渠道级 nai.url/nai.key 是存量字段。
     // reason 里刻意**不带接入点名字**:它会经 getBackendStatus 原样递给第三方,而名字是用户

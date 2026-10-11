@@ -209,6 +209,39 @@ export function naiRandomSeed(): number {
   return Math.floor(Math.random() * 2 ** 32);
 }
 
+/**
+ * Anima 兼容站(latent.moe 一类)实际接受的画幅档位。
+ *
+ * 那些站把请求按宽高比就近吸到三档之一,不是原样使用:
+ * 实测映射 832×1216 → 920×1536、1152×1536 → 920×1536、1216×832 → 1536×920、
+ * 1536×1024 → 1536×920、1280×768 → 1536×920、1536×1152 → 1024×1024。
+ * 注意最后一例:1536×1152 的宽高比 1.333 离方形档(1.0)最近,于是竖图被判成方图。
+ *
+ * 与其让站点在背后偷偷改,不如本地先吸到同一档 —— 这样「界面显示的尺寸」「实际出图的
+ * 尺寸」「随图记录的尺寸」三者一致,不会再出现「明明选了竖 1152×1536,出来的却是 920×1536」。
+ * 只在 anima 风格且用户开了尺寸吸附时生效(见 NaiSettings.sizeSnap)。
+ */
+export const GATEWAY_ASPECT_TIERS: ReadonlyArray<NaiSize> = [
+  { width: 920, height: 1536 },
+  { width: 1024, height: 1024 },
+  { width: 1536, height: 920 },
+];
+
+/** 把任意合法分辨率吸到 GATEWAY_ASPECT_TIERS 里宽高比最接近的一档。 */
+export function snapGatewayAspect(size: NaiSize): NaiSize {
+  const target = size.width / size.height;
+  let best = GATEWAY_ASPECT_TIERS[0];
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (const tier of GATEWAY_ASPECT_TIERS) {
+    const diff = Math.abs(tier.width / tier.height - target);
+    if (diff < bestDiff) {
+      bestDiff = diff;
+      best = tier;
+    }
+  }
+  return { width: best.width, height: best.height };
+}
+
 function uint8ToBase64(bytes: Uint8Array): string {
   let bin = '';
   const CHUNK = 0x8000;
@@ -316,10 +349,17 @@ export function naiArtistPrompt(nai: NaiSettings): string {
  * 正面质量词解析链:配方绑定值 → 渠道覆盖值(qualityTags)→ 内置默认。
  * 任一级空串(或纯空白)= 跟随下一级。内置默认当前 = 模型官方词;
  * 以后插件要换成自己的精选默认,只改 naiDefaultQualityTags,链结构不变。
+ *
+ * anima 风格的兜底是**空串**:那份规范明令禁止模型自己写质量词,插件也不该在背后
+ * 追加 NAI 官方那串(very aesthetic / masterpiece / no text)—— Anima 不认这些词,
+ * 它们只会稀释画面内容。前两级仍然生效:用户/配方显式绑定的质量词是他自己的选择。
  */
 export function naiQualityTags(nai: NaiSettings): string {
   const bound = naiActivePreset(nai)?.quality.trim();
-  return bound || nai.qualityTags.trim() || naiDefaultQualityTags(nai.model);
+  if (bound) return bound;
+  const override = nai.qualityTags.trim();
+  if (override) return override;
+  return nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(nai.model);
 }
 
 /** 负面提示词解析链:配方绑定值 → 渠道覆盖值(undesiredContent)→ 内置默认(模型官方负面词)。 */
@@ -343,7 +383,10 @@ export function fullPositivePrompt(nai: NaiSettings, prompt: string, nl = ''): s
   const artist = naiArtistPrompt(nai);
   const quality = naiQualityTags(nai);
   const tags = [artist, prompt.trim(), quality].filter(Boolean).join(', ');
-  return naiSupportsCharacterPrompts(nai.model) && nl.trim() ? `${tags}. ${nl.trim()}` : tags;
+  // anima 是单串口径:nl 无条件接在 tag 串之后。这条链上没有 characters[] 可以分摊,
+  // 自然语言就是主体本身,不该再按「模型是否支持 Character Prompts」去判断。
+  const nlAllowed = nai.promptStyle === 'anima' || naiSupportsCharacterPrompts(nai.model);
+  return nlAllowed && nl.trim() ? `${tags}. ${nl.trim()}` : tags;
 }
 
 function characterCaption(character: ImageCharacterPrompt): string {
@@ -376,7 +419,11 @@ export function fullNegativePrompt(nai: NaiSettings): string {
 export function buildNaiParameters(nai: NaiSettings, values: NaiGenerateValues): JsonObject {
   // 画幅按方向取用户配的那一格;没填回落竖屏默认
   const orientation = values.size ?? 'portrait';
-  const { width, height } = parseResolution(pickSize(nai, orientation) || '832×1216');
+  const resolved = parseResolution(pickSize(nai, orientation) || '832×1216');
+  // anima 兼容站会把尺寸按宽高比吸到自己的三档(见 GATEWAY_ASPECT_TIERS),本地先吸一致:
+  // 否则界面显示 1152×1536、实际出图 920×1536,随图记录的也还是 1152×1536。
+  const { width, height } =
+    nai.promptStyle === 'anima' && nai.sizeSnap ? snapGatewayAspect(resolved) : resolved;
   // 显式传入 > 面板固定种子 > 随机
   const seed = values.seed ?? (nai.seed > 0 ? nai.seed : naiRandomSeed());
   const prompt = fullPositivePrompt(nai, values.prompt, values.nl);
@@ -421,12 +468,13 @@ export function buildNaiParameters(nai: NaiSettings, values: NaiGenerateValues):
   } else {
     // NAI4/4.5/V5: v4 caption structure; Vibe uses a model-specific cached encoding.
     params.reference_image_multiple_cached = [];
-    const charCaptions = naiSupportsCharacterPrompts(nai.model)
-      ? (values.characters ?? []).map(character => ({
-          char_caption: characterCaption(character),
-          centers: [{ x: 0.5, y: 0.5 }],
-        }))
-      : [];
+    const charCaptions =
+      naiSupportsCharacterPrompts(nai.model) && nai.promptStyle !== 'anima'
+        ? (values.characters ?? []).map(character => ({
+            char_caption: characterCaption(character),
+            centers: [{ x: 0.5, y: 0.5 }],
+          }))
+        : [];
     params.characterPrompts = [];
     params.v4_prompt = {
       caption: { base_caption: prompt, char_captions: charCaptions },

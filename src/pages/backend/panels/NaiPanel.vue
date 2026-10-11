@@ -63,6 +63,7 @@ import {
   newNaiEndpoint,
   NAI_MODELS,
   NAI_OFFICIAL_URL,
+  NAI_PROMPT_STYLES,
   ORIENTATION_LOCKS,
   settings,
   type NaiArtistPreset,
@@ -466,6 +467,16 @@ const modelSel = computed<string>({
   set: v => {
     const hit = NAI_MODELS.find(m => m.value === v);
     if (hit) settings.nai.model = hit.value;
+  },
+});
+
+/** 提示词风格:nai = NAI 原生(Base + Character Prompts),anima = 单串(自然语言为主)。
+ *  同一层 get/set 搭桥,写入前归一化,免得下拉给出非法值时字段被写成脏值。 */
+const isAnimaStyle = computed(() => settings.nai.promptStyle === 'anima');
+const promptStyleSel = computed<string>({
+  get: () => settings.nai.promptStyle,
+  set: v => {
+    settings.nai.promptStyle = v === 'anima' ? 'anima' : 'nai';
   },
 });
 
@@ -1108,11 +1119,32 @@ async function removeVibe(vibe: NaiVibe) {
           />
         </div>
 
+        <div class="bbi-field">
+          <div class="bbi-field-head">
+            <span class="bbi-field-label">提示词风格</span>
+          </div>
+          <BbiSelect
+            class="be-select"
+            v-model="promptStyleSel"
+            :options="NAI_PROMPT_STYLES"
+            aria-label="提示词风格"
+          />
+        </div>
+        <p class="bbi-field-hint">
+          只换提示词的写法与输出结构，请求协议不变（两种都走 NAI 的 generate-image）。
+          Anima 风格为「单串输出、自然语言为主体、角色外貌全部写进主体、不产出 characters」，
+          给后端跑 Anima（Qwen 链路）的 NAI 兼容站使用。
+        </p>
+
         <label class="bbi-switch-row">
           <span class="bbi-field-label">生成自然语言</span>
           <input v-model="settings.nai.naturalLanguage" type="checkbox" class="bbi-checkbox" />
         </label>
-        <p class="bbi-field-hint">
+        <p v-if="isAnimaStyle" class="bbi-field-hint">
+          开:在 tag 串后追加一段英文描述,关系、相对位置、景别与光线主要靠它补;关:只出 tag,
+          这些内容压回 1–4 词的短 tag。提示词规范与思维链里都写了条件段,改开关即可,不用动文本。
+        </p>
+        <p v-else class="bbi-field-hint">
           开:自动 tag 为画面与每个角色额外写一段英文描述;关:只写 tag。4.5 的提示词上限约 512 token
           (画面与所有角色共用),自然语言最占篇幅,超了会被截断、画面走样,可以关掉试试。
           只影响之后新写的提示词:正文里已有的自然语言照常发送,想对比可在「编辑提示词」里点「AI 重写提示词」。
@@ -1178,6 +1210,18 @@ async function removeVibe(vibe: NaiVibe) {
           竖屏用于单人、特写、立绘;横屏用于群像、远景、全景。「自动」由自动 tag 按画面判定;
           锁定后每张图都按该方向出,自动 tag 也按这个画幅构图。正文里已记下的方向不会被改写,改回「自动」即恢复。
         </p>
+
+        <template v-if="isAnimaStyle">
+          <label class="bbi-switch-row">
+            <span class="bbi-field-label">尺寸吸附到网关三档</span>
+            <input v-model="settings.nai.sizeSnap" type="checkbox" class="bbi-checkbox" />
+          </label>
+          <p class="bbi-field-hint">
+            Anima 兼容站会把尺寸按宽高比吸附成三档:竖 920×1536、方 1024×1024、横 1536×920。
+            它不认别的尺寸,你配 1536×1152(比 1.333)会被判成方图、白白丢掉宽图——开启后本地先吸附,
+            面板填的与实际拿到的才对得上。关闭则原样下发,由网关自行处理。
+          </p>
+        </template>
 
         <div class="be-row">
           <div class="bbi-field">

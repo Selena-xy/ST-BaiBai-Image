@@ -8,6 +8,8 @@ import ModalMask from '@/components/ModalMask.vue';
 import { fetchModels, testChannel } from '@/api/client';
 import {
   BACKENDS,
+  DEFAULT_ANIMA_SPEC,
+  DEFAULT_ANIMA_THINKING,
   DEFAULT_COMFY_SPEC,
   DEFAULT_COMFY_THINKING,
   DEFAULT_JAILBREAK_PROMPT,
@@ -136,12 +138,12 @@ interface TagPromptMeta {
 // 得在同后端规范里有判据和词表),列在一起是为了改一个时能看见另一个。
 // 不按当前后端过滤——过滤会让「现在用的是哪份」变成隐式状态,反而更难排查。
 //
-// ⚠ NAI 只列一对,存的是 naiV5Spec / naiV5Thinking(键名带 V5 是历史包袱,见 settings.ts)。
-// 4.5 以下那套单串 tag 的 naiSpec / naiThinking 已随模型列表收窄一起下线,不再列出:
-// 可选模型只剩 4.5/V5,那两份永远走不到,列出来只会让人以为还有第二种口径要维护。
+// ⚠ NAI 列两对,按面板上的「提示词风格」分:naiV5* 给 NAI 原生(模型列表收窄后 4.5/V5 共用这一份,
+// 4.5 以下那套单串 tag 的 naiSpec / naiThinking 已随模型列表收窄一起下线);anima* 给 Anima 单串。
+// 两对各自配套,别交叉取用——思维链槽位要填的字段得在同份规范里有判据。
 //
 // 自然语言条件段(autoTag/prompt.ts 的 expandNlSections)对两个后端的规范与思维链都展开,
-// 故这四份都挂上这组宏;内置的 NAI 两份正是靠它一份文本兼顾「生成自然语言」开关两侧。
+// 故这几份都挂上这组宏;内置的 NAI 四份正是靠它一份文本兼顾「生成自然语言」开关两侧。
 const NL_SECTION_MACROS = [
   { token: '{{#nl}}', desc: '条件段开头：到 {{/nl}} 为止的内容只在开启「生成自然语言」时保留。' },
   { token: '{{^nl}}', desc: '条件段开头：到 {{/nl}} 为止的内容只在关闭「生成自然语言」时保留。' },
@@ -168,6 +170,20 @@ const TAG_PROMPT_METAS: TagPromptMeta[] = [
     label: 'NAI 思维链',
     hint: '默认后端为 NAI 时使用的输出前思考清单，作为 system 压在任务消息之后（解析时会自动剥掉思考块）。槽位块是「Base 块 + 每角色一块」，对应 characters[] 协议，与 ComfyUI 那份的单串形态不通用。与「NAI 规范」配套，同样按 {{#nl}}…{{/nl}} / {{^nl}}…{{/nl}} 条件段取舍。留空用内置默认。',
     builtin: DEFAULT_NAI_V5_THINKING,
+    macros: NL_SECTION_MACROS,
+  },
+  {
+    key: 'animaSpec',
+    label: 'Anima 规范',
+    hint: 'NAI 面板的「提示词风格」选 Anima 时使用，定义单串输出口径：tag 键 + nl 键拼成同一个正向 prompt，角色外貌全部写进主体，不产出 characters 与 char_captions，也不发 NAI 官方质量词与 :: 权重、反斜杠转义括号。同样按 {{#nl}}…{{/nl}} / {{^nl}}…{{/nl}} 条件段取舍——关掉「生成自然语言」时只有 {{^nl}} 段生效。留空用内置默认。',
+    builtin: DEFAULT_ANIMA_SPEC,
+    macros: NL_SECTION_MACROS,
+  },
+  {
+    key: 'animaThinking',
+    label: 'Anima 思维链',
+    hint: '「提示词风格」选 Anima 时使用的输出前思考清单，与「Anima 规范」配套，同样按 {{#nl}}…{{/nl}} / {{^nl}}…{{/nl}} 条件段取舍。留空用内置默认。',
+    builtin: DEFAULT_ANIMA_THINKING,
     macros: NL_SECTION_MACROS,
   },
   {
@@ -730,7 +746,10 @@ async function confirmUpdate() {
             @change="normalizeAutoTagNumbers('maxImages')"
           />
         </label>
-        <p class="bbi-field-hint">最少设为 0 时允许不出图;最多数量始终受插件硬限制。</p>
+        <p class="bbi-field-hint">
+          最少设为 0 时由 AI 自行判断,可能只出一张或不出图;填上具体数字(如 2)才是硬要求 ——
+          AI 给不够会被判为不合格并自动重试补足。最多数量始终受插件硬限制。
+        </p>
 
         <label class="bbi-num-row">
           <span class="bbi-field-label">失败自动重试次数</span>

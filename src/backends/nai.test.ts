@@ -15,6 +15,7 @@ import {
   parseNaiv4vibe,
   parseResolution,
   skipCfgAboveSigma,
+  snapGatewayAspect,
   unzipNaiImage,
   vibeModelKey,
   NaiError,
@@ -49,6 +50,8 @@ function nai(overrides: Partial<NaiSettings> = {}): NaiSettings {
     activeArtistId: '',
     naturalLanguage: true,
     orientationLock: 'auto',
+    promptStyle: 'nai',
+    sizeSnap: true,
     ...overrides,
   };
 }
@@ -159,6 +162,65 @@ describe('提示词拼装', () => {
     const odd = nai({ model: 'nai-diffusion-9' as NaiSettings['model'] });
     expect(fullPositivePrompt(odd, '1girl')).toBe('1girl');
     expect(fullNegativePrompt(odd)).toBe('');
+  });
+});
+
+describe('Anima 单串风格', () => {
+  const anima = (overrides: Partial<NaiSettings> = {}): NaiSettings =>
+    nai({ promptStyle: 'anima', ...overrides });
+
+  it('兜底质量词是空串:不把 NAI 官方词塞进 Anima 的提示词', () => {
+    // Anima 不认 very aesthetic / masterpiece / no text,塞进去只会稀释画面内容
+    expect(fullPositivePrompt(anima(), '1girl, sitting')).toBe('1girl, sitting');
+    // 同模型下 nai 风格照旧拿到官方词(证明差别确实来自 promptStyle)
+    expect(fullPositivePrompt(nai(), '1girl, sitting')).toContain('masterpiece');
+  });
+
+  it('用户显式绑定的质量词仍然生效(解析链前两级不因 anima 失效)', () => {
+    expect(fullPositivePrompt(anima({ qualityTags: 'best quality' }), '1girl')).toBe('1girl, best quality');
+    expect(fullPositivePrompt(anima({ qualityTags: '   ' }), '1girl')).toBe('1girl');
+  });
+
+  it('nl 无条件接在 tag 串之后,不看模型是否支持 Character Prompts', () => {
+    // NAI3 不支持 char captions,但 anima 的单串口径与那条能力无关
+    const out = fullPositivePrompt(anima({ model: 'nai-diffusion-3' }), '1girl', 'She sits by the window.');
+    expect(out).toBe('1girl. She sits by the window.');
+  });
+
+  it('不产 char_captions:角色提示无处安放,内容只能落在 base_caption', () => {
+    const p = buildNaiParameters(anima({ model: 'nai-diffusion-4-5-full' }), {
+      prompt: '2girls, classroom',
+      nl: 'Two girls in a classroom.',
+      characters: [{ name: 'A', tag: '1girl, black hair, white dress', nl: 'On the left.' }],
+      seed: 1,
+    });
+    const v4 = p.v4_prompt as { caption: { base_caption: string; char_captions: unknown[] } };
+    expect(v4.caption.char_captions).toEqual([]);
+    expect(v4.caption.base_caption).toBe('2girls, classroom. Two girls in a classroom.');
+  });
+
+  it('尺寸吸附:anima + 开关开时吸到网关三档,关或非 anima 时原样下发', () => {
+    const size = { prompt: 'x', seed: 1 };
+    const snapped = buildNaiParameters(anima({ portraitSize: '1536×1152' }), size);
+    expect([snapped.width, snapped.height]).toEqual([1024, 1024]);
+
+    const raw = buildNaiParameters(anima({ portraitSize: '1536×1152', sizeSnap: false }), size);
+    expect([raw.width, raw.height]).toEqual([1536, 1152]);
+
+    // nai 风格不吸附:它出的是真 NAI,那边认这些尺寸
+    const naiStyle = buildNaiParameters(nai({ portraitSize: '1536×1152' }), size);
+    expect([naiStyle.width, naiStyle.height]).toEqual([1536, 1152]);
+  });
+
+  it('snapGatewayAspect 按宽高比取最近的一档', () => {
+    const snap = (width: number, height: number) => snapGatewayAspect({ width, height });
+    expect(snap(832, 1216)).toEqual({ width: 920, height: 1536 });
+    expect(snap(1152, 1536)).toEqual({ width: 920, height: 1536 });
+    expect(snap(1216, 832)).toEqual({ width: 1536, height: 920 });
+    expect(snap(1536, 1024)).toEqual({ width: 1536, height: 920 });
+    expect(snap(1280, 768)).toEqual({ width: 1536, height: 920 });
+    // 1.333 离方形档最近 —— 竖着填 1536×1152 会被判成方图,吸附后本地显示与实际一致
+    expect(snap(1536, 1152)).toEqual({ width: 1024, height: 1024 });
   });
 });
 
