@@ -354,13 +354,37 @@ interface NaiPromptTarget {
   write: (v: string) => void;
 }
 
+/**
+ * 「正面质量词」的说明随提示词风格变:NAI 把它拼在画面 tag 之后,Anima 要求质量/年代这类
+ * 正面前缀打头(section 顺序),而且插件在 Anima 下不注入任何内置词 —— 还按 NAI 的口径写,
+ * 会让人以为填了没用、或者以为有默认值兜着。
+ */
+function qualityHintChannel(): string {
+  return settings.nai.promptStyle === 'anima'
+    ? 'Anima 下插件不注入任何内置质量词,这一串完全由你定。它拼在整个 tag 串最前(整体顺序:质量/年代词 → 画师串 → 画面 tag)。画师串里设置了质量词时,会用画师串那份,这里的不生效;两处都留空就是不追加。'
+    : '拼在画面 tag 之后(整体顺序:画师串 → 画面 tag → 质量词)。画师串里设置了质量词时,会用画师串那份,这里的不生效。';
+}
+
+/** 画师串绑定级的同一件事:留空时跟到哪一级,Anima 下末级是「不追加」。 */
+function qualityHintArtistBound(): string {
+  return settings.nai.promptStyle === 'anima'
+    ? '这份质量词随当前画师串一起切换,拼在整个 tag 串最前(质量/年代词 → 画师串 → 画面 tag)。留空 = 用渠道级设置(渠道级也留空,则 Anima 下不追加任何前缀)。'
+    : '这份质量词随当前画师串一起切换。留空 = 用渠道级设置(渠道级也留空,则按模型取官方词)。';
+}
+
 /** 渠道级两条:画师串未绑定对应字段时生效,再留空则按模型取官方词。 */
 const CHANNEL_PROMPT_TARGETS: NaiPromptTarget[] = [
   {
     key: 'quality',
     label: '正面质量词',
-    hint: '拼在画面 tag 之后(整体顺序:画师串 → 画面 tag → 质量词)。画师串里设置了质量词时,会用画师串那份,这里的不生效。',
-    fallback: () => naiDefaultQualityTags(settings.nai.model),
+    // getter 而非常量:说明要跟着「提示词风格」切。
+    get hint() {
+      return qualityHintChannel();
+    },
+    // Anima 下末级回落是空串(插件不注入内置词),弹窗预填也就得是空的,否则等于
+    // 把「其实没生效的 NAI 官方词」当成当前值摆在用户面前。
+    fallback: () =>
+      settings.nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(settings.nai.model),
     read: () => settings.nai.qualityTags,
     write: v => (settings.nai.qualityTags = v),
   },
@@ -389,8 +413,10 @@ const artistBoundTargets = computed<NaiPromptTarget[]>(() => {
       readonly,
       hint: readonly
         ? '内置画师串的绑定位随插件版本更新,不可改;复制为我的画师串后可自定义。留空 = 用渠道级设置(渠道级也留空,则按模型取官方词)。'
-        : '这份质量词随当前画师串一起切换。留空 = 用渠道级设置(渠道级也留空,则按模型取官方词)。',
-      fallback: () => settings.nai.qualityTags.trim() || naiDefaultQualityTags(settings.nai.model),
+        : qualityHintArtistBound(),
+      fallback: () =>
+        settings.nai.qualityTags.trim() ||
+        (settings.nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(settings.nai.model)),
       read: () => a.quality,
       write: v => (a.quality = v),
     },
