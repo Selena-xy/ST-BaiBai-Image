@@ -1142,8 +1142,10 @@ export const DEFAULT_ANIMA_SPEC = `【Anima 提示词规范】
     cream silk blouse with v-neck、navy wool blazer with lapel collar。
     领型必须显式落词:collarless、collared shirt、crew neck、v-neck、turtleneck、open collar、
     lapel collar、hooded;材质按可见度落词:knit、silk、cotton、wool、leather、denim、chiffon。
-    **下装、裙装与外套还要带长度或剪裁**:裙装写清 mini、knee-length、midi、maxi 与 slim、a-line、
-    wrap、slip 之类,裤子写清 high-waisted、wide-leg、slim、cropped,长外套写清 long、knee-length。
+    **下装、裙装与外套必须写清长度**:裙装的长度与版型要分开写、长度不能省 —— 长度取 mini、
+    knee-length、midi、maxi 之一,版型再取 slim、a-line、wrap、slip 之一(写成 slim midi dress、
+    a-line knee-length skirt 这样长度和版型都在);裤子写清 high-waisted、wide-leg、slim、
+    cropped,长外套写清 long、knee-length。
     光秃秃一个 dress、skirt、trousers、coat 等于把长度和版型全交给模型自由发挥 —— 同一条时间线里
     紧身短裙能变成长裙。裙子有开衩、百褶、腰带这类关键部件也一并写上。
     正文明确写了「无领」「高领」「丝绸」「针织」这类信息时必须逐字落进 tag ——
@@ -1276,7 +1278,7 @@ B. 角色清点与建档(具体建档字段与写法见任务协议,这里只做
 
 C. 服装时间线(B 段列出的【已建档】【本次建档】角色各一行:从 P 几起穿的是什么)
    - 按正文 P 位置维护每个角色的临时服装:正文未明确初始穿着时合理决定一次;没有穿脱、换装、衣物损坏或场景/时间跳跃就沿用上一状态,明确变化后从对应 P 位置起更新。
-   - 每套服装冻结一份「视觉指纹」,**四要素一个都不能少:版型/剪裁 + 主色 + 材质 + 领型/开口形态**(裤袜另含颜色与透明度)。只写 white long-sleeved shirt 这种「颜色 + 袖长」的泛化词是不够的 —— 模型每张图都会自己补一套领型和版型,同一条时间线里能画出有领衬衫、圆领 T 恤、无领衬衣三种东西。领型必须显式落词:collarless、crew neck、v-neck、turtleneck、open collar、lapel collar、hooded;材质按可见度落词:knit、silk、cotton、wool、leather、denim、chiffon。裙装、下装与长外套还要带**长度或剪裁**(mini、knee-length、midi、maxi、slim、a-line、high-waisted、wide-leg、cropped),光写 dress 或 trousers 模型会自己挑长度。写成 collarless white silk shirt 这种四要素齐全的短串,相同状态全楼复用同一份,不要写成 school uniform、dress、pantyhose 这类模型会自行重新设计的孤立词。这份指纹就是第二层 X on Y 绑定时要照抄的那串词。
+   - 每套服装冻结一份「视觉指纹」,**四要素一个都不能少:版型/剪裁 + 主色 + 材质 + 领型/开口形态**(裤袜另含颜色与透明度)。只写 white long-sleeved shirt 这种「颜色 + 袖长」的泛化词是不够的 —— 模型每张图都会自己补一套领型和版型,同一条时间线里能画出有领衬衫、圆领 T 恤、无领衬衣三种东西。领型必须显式落词:collarless、crew neck、v-neck、turtleneck、open collar、lapel collar、hooded;材质按可见度落词:knit、silk、cotton、wool、leather、denim、chiffon。裙装、下装与长外套的**长度不能省**:裙装先取长度(mini、knee-length、midi、maxi 之一),再取版型(slim、a-line、wrap、slip 之一);裤子写 high-waisted、wide-leg、slim、cropped;光写 dress 或 trousers 模型会自己挑长度。写成 collarless white silk shirt 这种四要素齐全的短串,相同状态全楼复用同一份,不要写成 school uniform、dress、pantyhose 这类模型会自行重新设计的孤立词。这份指纹就是第二层 X on Y 绑定时要照抄的那串词。
    - 【一次性】角色不在本段占行:他没有跨图延续的服装账本,衣着在他入选那张图里一次写定即可(同一楼两张图都有他时两张保持一致)。给他维护时间线是白写的,也会误导你把他当成正式角色去建档。
 
 D. 时代与世界观(一次判断,全楼通用)
