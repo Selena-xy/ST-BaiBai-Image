@@ -6,7 +6,7 @@ import type { Orientation } from '@/backends/size';
 import BbiTextarea from '@/components/BbiTextarea.vue';
 import Icon from '@/components/Icon.vue';
 import ModalMask from '@/components/ModalMask.vue';
-import { activeOrientationLock } from '@/state/settings';
+import { activeOrientationLock, isProseNai } from '@/state/settings';
 import { containsTagMarkup, type ImageTagContent } from '@/st/imageTagRegex';
 
 /**
@@ -85,6 +85,12 @@ const lockedSize = computed<Orientation | null>(() => {
   return lock === 'auto' ? null : lock;
 });
 
+/** NAI 出口选了「自然语言单串」时,tag 字段装的是一整段英文描述而非 danbooru tag ——
+ *  标签、占位符与错误文案跟着换口径,免得用户照着「逗号分隔」的提示把描述改成词堆。
+ *  校验规则本身不变:仍然非空、仍禁子标签字面量(与 AI 侧同一份)。
+ *  历史楼层不回改:切风格前落盘的 tag 原样保留,编辑时按当时的口径正常展示。 */
+const proseStyle = computed(() => isProseNai());
+
 /** 换行折成空格:与 parseImageTagContent 的 oneLine 同口径(提示词里换行没有意义)。 */
 function oneLine(text: string): string {
   return text.trim().replace(/[\r\n]+/g, ' ');
@@ -134,7 +140,7 @@ const dirty = computed(() => {
 /** 校验:tag 必填 + 全字段禁含子标签字面量(口径与 AI 侧同一份)。 */
 const error = computed(() => {
   const next = draft.value;
-  if (!next.tag) return '画面 tag 不能为空';
+  if (!next.tag) return proseStyle.value ? '画面描述不能为空' : '画面 tag 不能为空';
   const fields: Array<[string, string]> = [
     ['画面 tag', next.tag],
     ['自然语言', next.nl],
@@ -283,14 +289,20 @@ onBeforeUnmount(() => {
       </p>
 
       <div class="bbi-modal-field">
-        <span class="bbi-modal-label">画面 tag(danbooru 短 tag,逗号分隔)</span>
+        <span class="bbi-modal-label">{{
+          proseStyle ? '画面描述(自然语言单串:一整段英文,首词为安全档)' : '画面 tag(danbooru 短 tag,逗号分隔)'
+        }}</span>
         <BbiTextarea
           v-model="tag"
           class="bbi-prompt-area"
           :rows="4"
           :max-rows="14"
           mono
-          placeholder="1girl, long black hair, school uniform, classroom"
+          :placeholder="
+            proseStyle
+              ? 'safe. A girl with long black hair stands in a classroom, seen from the waist up...'
+              : '1girl, long black hair, school uniform, classroom'
+          "
         />
       </div>
 

@@ -8,6 +8,8 @@ import {
   DEFAULT_JAILBREAK_PROMPT,
   DEFAULT_NAI_V5_SPEC,
   DEFAULT_NAI_V5_THINKING,
+  DEFAULT_PROSE_SPEC,
+  DEFAULT_PROSE_THINKING,
   settings,
   type AutoTagPrompts,
   type AutoTagSettings,
@@ -29,6 +31,8 @@ function prompts(overrides: Partial<AutoTagPrompts> = {}): AutoTagPrompts {
     naiV5Thinking: '',
     animaSpec: '',
     animaThinking: '',
+    proseSpec: '',
+    proseThinking: '',
     ...overrides,
   };
 }
@@ -1022,12 +1026,15 @@ describe('自然语言条件段 expandNlSections', () => {
   });
 
   // 内置文本里的标记一旦写错(漏闭合、错拼),整段会连标记带内容原样漏给模型
+  // prose 两份不含条件段(该风格没有「关自然语言」侧),挂进列表防以后有人往里加错标记
   it.each([true, false])('内置规范与思维链展开后不留任何标记(nl=%s)', nlOn => {
     for (const text of [
       DEFAULT_NAI_V5_SPEC,
       DEFAULT_NAI_V5_THINKING,
       DEFAULT_ANIMA_SPEC,
       DEFAULT_ANIMA_THINKING,
+      DEFAULT_PROSE_SPEC,
+      DEFAULT_PROSE_THINKING,
     ]) {
       expect(expandNlSections(text, nlOn)).not.toMatch(/\{\{[#^/]nl\}\}/);
     }
@@ -1216,13 +1223,14 @@ describe('NAI「生成自然语言」开关与渠道画幅锁', () => {
       settings.nai.naturalLanguage = true;
       settings.nai.orientationLock = 'auto';
       settings.nai.promptStyle = 'nai';
-      expect(autoTagProfile()).toEqual({ naiCharPrompts: true, anima: false, nl: true, lockedSize: null });
+      expect(autoTagProfile()).toEqual({ naiCharPrompts: true, anima: false, prose: false, nl: true, lockedSize: null });
 
       settings.nai.naturalLanguage = false;
       settings.nai.orientationLock = 'portrait';
       expect(autoTagProfile()).toEqual({
         naiCharPrompts: true,
         anima: false,
+        prose: false,
         nl: false,
         lockedSize: 'portrait',
       });
@@ -1230,7 +1238,7 @@ describe('NAI「生成自然语言」开关与渠道画幅锁', () => {
       // 单串分支(NAI4)的协议本来就不写 nl,开关对它不起作用
       settings.nai.model = 'nai-diffusion-4-full';
       settings.nai.naturalLanguage = true;
-      expect(autoTagProfile()).toMatchObject({ naiCharPrompts: false, anima: false, nl: false });
+      expect(autoTagProfile()).toMatchObject({ naiCharPrompts: false, anima: false, prose: false, nl: false });
 
       // anima 风格:char captions 整条链下线(naiCharPrompts 恒 false),
       // nl 改由渠道级的 naturalLanguage 决定 —— 这是「nl 只有一个开关」的落点。
@@ -1239,6 +1247,7 @@ describe('NAI「生成自然语言」开关与渠道画幅锁', () => {
       expect(autoTagProfile()).toEqual({
         naiCharPrompts: false,
         anima: true,
+        prose: false,
         nl: true,
         lockedSize: 'portrait',
       });
@@ -1248,17 +1257,32 @@ describe('NAI「生成自然语言」开关与渠道画幅锁', () => {
       expect(autoTagProfile()).toEqual({
         naiCharPrompts: false,
         anima: true,
+        prose: false,
         nl: false,
         lockedSize: null,
       });
 
-      // anima 只认 NAI 渠道:切到 ComfyUI 后 anima 归 false,开关回到工作流那一份
+      // prose 风格:nl 恒 false —— 整段 tag 就是自然语言,「生成自然语言」开关不参与,
+      // runner 会照 !nl 分支丢弃模型照写的 nl(与 anima 关开关同一口径)
+      settings.nai.promptStyle = 'prose';
+      settings.nai.naturalLanguage = true;
+      settings.nai.orientationLock = 'portrait';
+      expect(autoTagProfile()).toEqual({
+        naiCharPrompts: false,
+        anima: false,
+        prose: true,
+        nl: false,
+        lockedSize: 'portrait',
+      });
+
+      // anima / prose 只认 NAI 渠道:切到 ComfyUI 后两个标志都归 false,开关回到工作流那一份
       settings.defaultBackend = 'comfyui';
       state.preset.naturalLanguage = true;
       state.preset.orientationLock = 'landscape';
       expect(autoTagProfile()).toEqual({
         naiCharPrompts: false,
         anima: false,
+        prose: false,
         nl: true,
         lockedSize: 'landscape',
       });
@@ -1268,6 +1292,7 @@ describe('NAI「生成自然语言」开关与渠道画幅锁', () => {
       expect(autoTagProfile()).toEqual({
         naiCharPrompts: false,
         anima: false,
+        prose: false,
         nl: false,
         lockedSize: null,
       });
@@ -1307,6 +1332,42 @@ describe('NAI「生成自然语言」开关与渠道画幅锁', () => {
       expect(offSpec).not.toMatch(/\{\{[#^/]nl\}\}/);
       expect(offSpec).toContain('只输出 position 与 tag');
       expect(pick(messages, THINKING_MARK)).not.toMatch(/\{\{[#^/]nl\}\}/);
+    } finally {
+      settings.nai.promptStyle = oldStyle;
+      state.restore();
+    }
+  });
+
+  it('prose 风格整套换成自然语言规范与思维链:示例 tag 是散文,无 nl / characters / negative', async () => {
+    const state = snapshot();
+    const oldStyle = settings.nai.promptStyle;
+    try {
+      settings.defaultBackend = 'nai';
+      settings.nai.model = 'nai-diffusion-5-full';
+      // prose 下「生成自然语言」开关不参与:开着也照样没有 nl 键
+      settings.nai.naturalLanguage = true;
+
+      settings.nai.promptStyle = 'prose';
+      const messages = await buildAutoTagMessages(context(), 1, options(), null);
+      const spec = pick(messages, '【自然语言提示词规范】');
+      const thinking = pick(messages, THINKING_MARK);
+      expect(messages.some(m => m.content.includes(NAI_SPEC_MARK))).toBe(false);
+      expect(messages.some(m => m.content.includes('【Anima 提示词规范】'))).toBe(false);
+      expect(spec).toContain('单串纯描述');
+      expect(thinking).toContain('单串纯描述');
+      const contract = pick(messages, CONTRACT_MARK);
+      // 示例:tag 键装一整段散文、首词安全档;nl / characters / negative 键一概不留。
+      // 精确锁 images 示例那段 JSON —— changes 建档示例里的 "nl" 是档案字段
+      // (见「prose 链路要求」),不许把它误算进 images 的形状。
+      const sample = contract.match(/\{"images":\[.*?\],"changes":\[\]\}/)![0];
+      expect(sample).toContain('"tag":"safe. ');
+      expect(sample).not.toContain('"nl"');
+      expect(sample).not.toContain('"characters"');
+      expect(sample).not.toContain('"negative"');
+      // 规则 4 讲清「tag 键装的是描述而非 danbooru tag」
+      expect(contract).toContain('单串纯自然语言输出');
+      // 建档仍要求附英文外貌简述(存档案 nl 字段,不进 images)
+      expect(contract).toContain('prose 链路要求');
     } finally {
       settings.nai.promptStyle = oldStyle;
       state.restore();

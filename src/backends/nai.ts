@@ -13,6 +13,7 @@ import { clampVibeStrength, loadVibeData } from '@/backends/vibeStore';
 import type { GenerationArtist, GenerationMeta, GenerationParams, GenerationVibe } from '@/generationMeta';
 import type {
   NaiArtistPreset,
+  NaiPromptStyle,
   NaiSettings,
   NaiVibe,
   NaiVibeData,
@@ -156,6 +157,16 @@ export function naiSupportsCharacterPrompts(model: string): boolean {
   return isNai45(model) || isNai5(model);
 }
 
+/**
+ * 该提示词风格是否为「单串出口」(anima / prose):整条正向提示词只有一串文字,
+ * 不产 characters 与 char_captions、不发 NAI 官方质量词、质量/画师前缀提到最前。
+ * 判据只此一处 —— nai.ts 的参数组装、generate.ts 的能力上报与 NaiPanel 共用,
+ * 免得 prose 上线时哪一处还按 `!== 'anima'` 把 characters 漏发出去。
+ */
+export function isSingleStringPromptStyle(style: NaiPromptStyle): boolean {
+  return style === 'anima' || style === 'prose';
+}
+
 export function isNai4Family(model: string): boolean {
   return model.includes('nai-diffusion-4');
 }
@@ -219,7 +230,7 @@ export function naiRandomSeed(): number {
  *
  * 与其让站点在背后偷偷改,不如本地先吸到同一档 —— 这样「界面显示的尺寸」「实际出图的
  * 尺寸」「随图记录的尺寸」三者一致,不会再出现「明明选了竖 1152×1536,出来的却是 920×1536」。
- * 只在 anima 风格且用户开了尺寸吸附时生效(见 NaiSettings.sizeSnap)。
+ * 只在单串风格(anima / prose)且用户开了尺寸吸附时生效(见 NaiSettings.sizeSnap)。
  */
 export const GATEWAY_ASPECT_TIERS: ReadonlyArray<NaiSize> = [
   { width: 920, height: 1536 },
@@ -350,17 +361,17 @@ export function naiArtistPrompt(nai: NaiSettings): string {
  * 任一级空串(或纯空白)= 跟随下一级。内置默认当前 = 模型官方词;
  * 以后插件要换成自己的精选默认,只改 naiDefaultQualityTags,链结构不变。
  *
- * anima 风格的兜底是**空串**:插件不替用户决定 Anima 的正面前缀(质量词/年代词),
- * 那一串完全由用户在设置里自己填 —— 前两级(配方绑定值、渠道覆盖值)照常生效,
- * 只是没有第三级。绝不能回落到 NAI 那一串:very aesthetic / no text 这类词 Anima
- * 不认,只会稀释画面内容。
+ * 单串风格(anima / prose)的兜底是**空串**:插件不替用户决定单串出口的正面前缀
+ * (质量词/年代词),那一串完全由用户在设置里自己填 —— 前两级(配方绑定值、渠道覆盖值)
+ * 照常生效,只是没有第三级。绝不能回落到 NAI 那一串:very aesthetic / no text 这类词
+ * Anima 不认,只会稀释画面内容。
  */
 export function naiQualityTags(nai: NaiSettings): string {
   const bound = naiActivePreset(nai)?.quality.trim();
   if (bound) return bound;
   const override = nai.qualityTags.trim();
   if (override) return override;
-  return nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(nai.model);
+  return isSingleStringPromptStyle(nai.promptStyle) ? '' : naiDefaultQualityTags(nai.model);
 }
 
 /** 负面提示词解析链:配方绑定值 → 渠道覆盖值(undesiredContent)→ 内置默认(模型官方负面词)。 */
@@ -373,9 +384,12 @@ export function naiUndesiredContent(nai: NaiSettings): string {
  * 正向完整 prompt。顺序按 promptStyle 分两套:
  * - nai:画师串在最前,画面 tag 居中,质量词在最后。画师串放最前是因为它决定整幅画的
  *   画风基调,NAI 对靠前 tag 的权重更高;
- * - anima:质量/年代词在最前,画师串居中,画面 tag 收尾 —— 这正是 Anima 模型卡的
- *   tag section 顺序([质量/年代/meta/安全] → [人数] → [角色] → [作品] → [画师] → [general])。
- *   质量词与画师串同样由渠道附加,模型自己一个字都不写(见 DEFAULT_ANIMA_SPEC 第 6 条)。
+ * - anima / prose(单串风格):质量/年代词在最前,画师串居中,画面内容收尾 —— 这正是
+ *   Anima 模型卡的 tag section 顺序([质量/年代/meta/安全] → [人数] → [角色] → [作品]
+ *   → [画师] → [general])。质量词与画师串同样由渠道附加,模型自己一个字都不写
+ *   (见 DEFAULT_ANIMA_SPEC 第 6 条 / DEFAULT_PROSE_SPEC 第 6 条)。
+ *   prose 的画面内容是一整段英文描述,首词是安全档 —— 拼装一视同仁(都是 filter(Boolean)
+ *   后逗号 join),前置词留空时它就是唯一一段,输出纯描述。
  * - 画师串 = 画风配方库当前选中条目(未选则无);质量词 = 配方绑定值优先,其次渠道覆盖值
  *   (qualityTags),都留空则按风格/模型取默认(见 naiQualityTags)。
  *
@@ -386,11 +400,12 @@ export function naiUndesiredContent(nai: NaiSettings): string {
 export function fullPositivePrompt(nai: NaiSettings, prompt: string, nl = ''): string {
   const artist = naiArtistPrompt(nai);
   const quality = naiQualityTags(nai);
-  const ordered = nai.promptStyle === 'anima' ? [quality, artist, prompt.trim()] : [artist, prompt.trim(), quality];
+  const single = isSingleStringPromptStyle(nai.promptStyle);
+  const ordered = single ? [quality, artist, prompt.trim()] : [artist, prompt.trim(), quality];
   const tags = ordered.filter(Boolean).join(', ');
-  // anima 是单串口径:nl 无条件接在 tag 串之后。这条链上没有 characters[] 可以分摊,
-  // 自然语言就是主体本身,不该再按「模型是否支持 Character Prompts」去判断。
-  const nlAllowed = nai.promptStyle === 'anima' || naiSupportsCharacterPrompts(nai.model);
+  // 单串风格(anima / prose)下 nl 无条件接在画面内容之后。这条链上没有 characters[]
+  // 可以分摊,自然语言就是主体本身,不该再按「模型是否支持 Character Prompts」去判断。
+  const nlAllowed = single || naiSupportsCharacterPrompts(nai.model);
   return nlAllowed && nl.trim() ? `${tags}. ${nl.trim()}` : tags;
 }
 
@@ -425,10 +440,10 @@ export function buildNaiParameters(nai: NaiSettings, values: NaiGenerateValues):
   // 画幅按方向取用户配的那一格;没填回落竖屏默认
   const orientation = values.size ?? 'portrait';
   const resolved = parseResolution(pickSize(nai, orientation) || '832×1216');
-  // anima 兼容站会把尺寸按宽高比吸到自己的三档(见 GATEWAY_ASPECT_TIERS),本地先吸一致:
+  // anima 等单串兼容站会把尺寸按宽高比吸到自己的三档(见 GATEWAY_ASPECT_TIERS),本地先吸一致:
   // 否则界面显示 1152×1536、实际出图 920×1536,随图记录的也还是 1152×1536。
   const { width, height } =
-    nai.promptStyle === 'anima' && nai.sizeSnap ? snapGatewayAspect(resolved) : resolved;
+    isSingleStringPromptStyle(nai.promptStyle) && nai.sizeSnap ? snapGatewayAspect(resolved) : resolved;
   // 显式传入 > 面板固定种子 > 随机
   const seed = values.seed ?? (nai.seed > 0 ? nai.seed : naiRandomSeed());
   const prompt = fullPositivePrompt(nai, values.prompt, values.nl);
@@ -473,8 +488,10 @@ export function buildNaiParameters(nai: NaiSettings, values: NaiGenerateValues):
   } else {
     // NAI4/4.5/V5: v4 caption structure; Vibe uses a model-specific cached encoding.
     params.reference_image_multiple_cached = [];
+    // 单串风格(anima / prose)不产 char_captions:角色内容全部在画面串里,
+    // 漏发出去的 characters 只会被兼容站忽略或画蛇添足。
     const charCaptions =
-      naiSupportsCharacterPrompts(nai.model) && nai.promptStyle !== 'anima'
+      naiSupportsCharacterPrompts(nai.model) && !isSingleStringPromptStyle(nai.promptStyle)
         ? (values.characters ?? []).map(character => ({
             char_caption: characterCaption(character),
             centers: [{ x: 0.5, y: 0.5 }],

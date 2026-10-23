@@ -251,12 +251,30 @@ runForFloor(floor, opts)
 全部可编辑提示词(破限/规范/思维链)在 `state/settings.ts` 有内置默认常量
 (`DEFAULT_*_PROMPT`/`DEFAULT_*_SPEC`),留空回落默认 —— 改默认提示词内容先看这里。
 
-⚠ **设置页只暴露两对规范/思维链:ComfyUI 与 NAI**,后者存在 `naiV5Spec` / `naiV5Thinking`
-(键名带 V5 是历史命名,内容对 4.5 同样适用,面板标签已改成不提代数的「NAI 规范/思维链」)。
-另有 `naiSpec` / `naiThinking` 是 4.5 以下的单串 tag 版本,随旧模型下线(见 §6 `NAI_MODELS`)
-**已无 UI 入口**:可选模型只剩 4.5/V5 → `naiCharPromptsOn` 恒真 → 那两份永远走不到。
-键与常量都刻意保留(不动存量 settings、不动旧模型标识的协议分支与回归锁),
-但**改 NAI 规范/思维链一律改 `DEFAULT_NAI_V5_*` 那一对**,别去改看着名字更正的那份。
+⚠ **设置页暴露四对规范/思维链:ComfyUI、NAI、Anima 与自然语言(本 fork 加了后两对)**,
+NAI 那对存在 `naiV5Spec` / `naiV5Thinking`(键名带 V5 是历史命名,内容对 4.5 同样适用,
+面板标签已改成不提代数的「NAI 规范/思维链」)。另有 `naiSpec` / `naiThinking` 是 4.5 以下的
+单串 tag 版本,随旧模型下线(见 §6 `NAI_MODELS`)**已无 UI 入口**:可选模型只剩 4.5/V5 →
+`naiCharPromptsOn` 恒真 → 那两份永远走不到。键与常量都刻意保留(不动存量 settings、
+不动旧模型标识的协议分支与回归锁),但**改 NAI 规范/思维链一律改 `DEFAULT_NAI_V5_*` 那一对**,
+别去改看着名字更正的那份。
+
+**提示词风格(`settings.nai.promptStyle`,`'nai' | 'anima' | 'prose'`,本 fork 加)**:
+只换「写给模型的规范与输出结构」,请求协议不变。选取逻辑集中在 `autoTagProfile()`
+(`prompt` 标志)+ `backendPromptSpec`/`backendThinkingPrompt` 的分支:
+- `anima`(Anima 单串):`animaSpec`/`animaThinking`(回落 `DEFAULT_ANIMA_*`),
+  单串 tag + 可选 nl,不发官方质量词、不产 characters;
+- `prose`(自然语言单串):`proseSpec`/`proseThinking`(回落 `DEFAULT_PROSE_*`),
+  **tag 键里装一整段英文描述而非 danbooru tag**(协议 JSON 形状不变,下游序列化/
+  promptHash/存储全兼容),不写 nl 键、不产 characters;首词是安全档
+  (safe/sensitive/nsfw/explicit + 句点);`profile.nl` 恒 false——「生成自然语言」
+  开关在该风格下不参与,runner 的 `!profile.nl` 分支照常丢弃模型照写的 nl。
+  两份 prose 内置文本不含 `{{#nl}}/{{^nl}}` 条件段(没有「关自然语言」这一侧)。
+- 出图侧判据统一走 `backends/nai.ts` 的 `isSingleStringPromptStyle`(anima|prose):
+  质量词兜底空串、拼装顺序 [quality, artist, 画面]、nl 无条件接尾、尺寸吸附生效、
+  不产 char_captions;`generate.ts` 的 `supportsCharacters` 同一判据。
+  新增风格必须同步 `normalizePromptStyle` 白名单,否则被静默吞成 'nai'
+  (`settings.proseStyle.test.ts` 锁这条)。
 
 ## 6. 链路 B:楼层卡片与出图(floor/ + backends/)
 
@@ -916,7 +934,7 @@ API 对象 `Object.freeze`,一个插件改不动下一个插件拿到的东西�
 | 出图链路中段(闸门 / 后端分派 / 就绪判据) | src/generate.ts(卡片与公开接口共用;**绕过它就绕过了 NAI 闸门**) |
 | 设置项(新增字段/默认值/迁移) | src/state/settings.ts(类型 + defaults + normalize 三处) |
 | 设置窗口 UI | src/pages/settings/index.vue |
-| 提示词内置默认(破限/规范/思维链) | src/state/settings.ts 的 `DEFAULT_*` 常量(NAI 那对是 `DEFAULT_NAI_V5_*`) |
+| 提示词内置默认(破限/规范/思维链) | src/state/settings.ts 的 `DEFAULT_*` 常量(NAI 那对是 `DEFAULT_NAI_V5_*`;Anima / 自然语言两对是 `DEFAULT_ANIMA_*` / `DEFAULT_PROSE_*`,按 `promptStyle` 选取,见 §5) |
 | 自动 tag 触发条件 / 去重 / 重试 | src/autoTag/runner.ts + generationGate.ts(生成门配对) |
 | 发给 LLM 的消息组装(顺序/内容) | src/autoTag/prompt.ts(NAI 一律走 DEFAULT_NAI_V5_SPEC:Base+Character 双提示) |
 | LLM 输出协议(JSON 形状/位置 ID/tag 格式) | src/autoTag/protocol.ts |

@@ -15,6 +15,8 @@ import {
   DEFAULT_JAILBREAK_PROMPT,
   DEFAULT_NAI_V5_SPEC,
   DEFAULT_NAI_V5_THINKING,
+  DEFAULT_PROSE_SPEC,
+  DEFAULT_PROSE_THINKING,
   IMAGE_DISPLAY_SIZES,
   newChannel,
   sanitizeTagName,
@@ -138,9 +140,10 @@ interface TagPromptMeta {
 // 得在同后端规范里有判据和词表),列在一起是为了改一个时能看见另一个。
 // 不按当前后端过滤——过滤会让「现在用的是哪份」变成隐式状态,反而更难排查。
 //
-// ⚠ NAI 列两对,按面板上的「提示词风格」分:naiV5* 给 NAI 原生(模型列表收窄后 4.5/V5 共用这一份,
-// 4.5 以下那套单串 tag 的 naiSpec / naiThinking 已随模型列表收窄一起下线);anima* 给 Anima 单串。
-// 两对各自配套,别交叉取用——思维链槽位要填的字段得在同份规范里有判据。
+// ⚠ NAI 列三对,按面板上的「提示词风格」分:naiV5* 给 NAI 原生(模型列表收窄后 4.5/V5 共用这一份,
+// 4.5 以下那套单串 tag 的 naiSpec / naiThinking 已随模型列表收窄一起下线);anima* 给 Anima 单串;
+// prose* 给自然语言单串(纯描述,无 tag)。三对各自配套,别交叉取用——思维链槽位要填的字段
+// 得在同份规范里有判据。
 //
 // 自然语言条件段(autoTag/prompt.ts 的 expandNlSections)对两个后端的规范与思维链都展开,
 // 故这几份都挂上这组宏;内置的 NAI 四份正是靠它一份文本兼顾「生成自然语言」开关两侧。
@@ -185,6 +188,20 @@ const TAG_PROMPT_METAS: TagPromptMeta[] = [
     hint: '「提示词风格」选 Anima 时使用的输出前思考清单，与「Anima 规范」配套，同样按 {{#nl}}…{{/nl}} / {{^nl}}…{{/nl}} 条件段取舍。留空用内置默认。',
     builtin: DEFAULT_ANIMA_THINKING,
     macros: NL_SECTION_MACROS,
+  },
+  {
+    key: 'proseSpec',
+    label: '自然语言规范',
+    hint: 'NAI 面板的「提示词风格」选自然语言单串时使用，定义纯描述口径：tag 键里装一整段连贯英文画面描述（首词为安全档 safe/sensitive/nsfw/explicit + 句点），不写 danbooru tag、不写 nl 键、不产出 characters 与 char_captions，也不发 NAI 官方质量词。该风格下「生成自然语言」开关不参与（整段就是自然语言），故不使用 {{#nl}}/{{^nl}} 条件段。留空用内置默认。',
+    builtin: DEFAULT_PROSE_SPEC,
+    macros: [],
+  },
+  {
+    key: 'proseThinking',
+    label: '自然语言思维链',
+    hint: '「提示词风格」选自然语言单串时使用的输出前思考清单，与「自然语言规范」配套；槽位值是要织进描述的英文词/短语，并多出「首词是安全档」「没有 tag 词法漏进行文」两条自查。留空用内置默认。',
+    builtin: DEFAULT_PROSE_THINKING,
+    macros: [],
   },
   {
     key: 'comfySpec',

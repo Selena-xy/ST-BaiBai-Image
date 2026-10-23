@@ -224,6 +224,64 @@ describe('Anima 单串风格', () => {
   });
 });
 
+describe('自然语言单串风格(prose)', () => {
+  const prose = (overrides: Partial<NaiSettings> = {}): NaiSettings =>
+    nai({ promptStyle: 'prose', ...overrides });
+
+  const desc = 'safe. A girl with long black hair stands in a classroom, seen from the waist up, glancing out of the window with a faint smile as soft afternoon sunlight falls across her face.';
+
+  it('兜底质量词是空串:纯描述出口同样不注入内置前缀,描述原样就是全部提示词', () => {
+    expect(fullPositivePrompt(prose(), desc)).toBe(desc);
+    // 同模型下 nai 风格照旧拿到官方词(证明差别确实来自 promptStyle)
+    expect(fullPositivePrompt(nai(), '1girl, sitting')).toContain('masterpiece');
+  });
+
+  it('用户自填的质量词/画师串提到描述最前(单串风格共用的前缀顺序)', () => {
+    expect(fullPositivePrompt(prose({ qualityTags: 'best quality' }), 'A girl')).toBe(
+      'best quality, A girl',
+    );
+    const s = prose({
+      qualityTags: 'best quality',
+      artistPresets: [
+        { id: 'art_a', name: 'A', prompt: 'artist:wlop', quality: '', negative: '' },
+      ],
+      activeArtistId: 'art_a',
+    });
+    expect(fullPositivePrompt(s, 'A girl')).toBe('best quality, artist:wlop, A girl');
+    // 纯空白等同留空
+    expect(fullPositivePrompt(prose({ qualityTags: '   ' }), 'A girl')).toBe('A girl');
+  });
+
+  it('手改 tag 附带的 nl 照常接尾:prose 协议不写 nl 键,但已写进正文的 nl 照常发送', () => {
+    const out = fullPositivePrompt(prose({ model: 'nai-diffusion-3' }), 'A girl', 'She sits by the window.');
+    expect(out).toBe('A girl. She sits by the window.');
+  });
+
+  it('不产 char_captions:prose 同样没有角色槽位,描述整体落 base_caption', () => {
+    const p = buildNaiParameters(prose({ model: 'nai-diffusion-4-5-full' }), {
+      prompt: desc,
+      nl: '',
+      characters: [{ name: 'A', tag: '1girl, black hair', nl: '' }],
+      seed: 1,
+    });
+    const v4 = p.v4_prompt as { caption: { base_caption: string; char_captions: unknown[] } };
+    expect(v4.caption.char_captions).toEqual([]);
+    expect(v4.caption.base_caption).toBe(desc);
+  });
+
+  it('尺寸吸附对 prose 同样生效;关掉或 nai 风格原样下发', () => {
+    const size = { prompt: 'safe. A wide plateau.', seed: 1 };
+    const snapped = buildNaiParameters(prose({ portraitSize: '1536×1152' }), size);
+    expect([snapped.width, snapped.height]).toEqual([1024, 1024]);
+
+    const raw = buildNaiParameters(prose({ portraitSize: '1536×1152', sizeSnap: false }), size);
+    expect([raw.width, raw.height]).toEqual([1536, 1152]);
+
+    const naiStyle = buildNaiParameters(nai({ portraitSize: '1536×1152' }), size);
+    expect([naiStyle.width, naiStyle.height]).toEqual([1536, 1152]);
+  });
+});
+
 describe('画师串拼装', () => {
   const preset = (prompt: string, id = 'art_a', extra: Partial<NaiArtistPreset> = {}): NaiArtistPreset => ({
     id,

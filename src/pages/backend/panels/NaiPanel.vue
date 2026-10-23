@@ -16,6 +16,7 @@ import {
   encodeVibeImage,
   isBuiltinNaiArtist,
   isNai5,
+  isSingleStringPromptStyle,
   naiDefaultQualityTags,
   naiDefaultUndesired,
   naiSamplers,
@@ -64,6 +65,7 @@ import {
   NAI_MODELS,
   NAI_OFFICIAL_URL,
   NAI_PROMPT_STYLES,
+  normalizePromptStyle,
   ORIENTATION_LOCKS,
   settings,
   type NaiArtistPreset,
@@ -355,20 +357,20 @@ interface NaiPromptTarget {
 }
 
 /**
- * 「正面质量词」的说明随提示词风格变:NAI 把它拼在画面 tag 之后,Anima 要求质量/年代这类
- * 正面前缀打头(section 顺序),而且插件在 Anima 下不注入任何内置词 —— 还按 NAI 的口径写,
- * 会让人以为填了没用、或者以为有默认值兜着。
+ * 「正面质量词」的说明随提示词风格变:NAI 把它拼在画面 tag 之后,单串风格(Anima / 自然语言)
+ * 要求质量/年代这类正面前缀打头(section 顺序),而且插件在单串风格下不注入任何内置词 ——
+ * 还按 NAI 的口径写,会让人以为填了没用、或者以为有默认值兜着。
  */
 function qualityHintChannel(): string {
-  return settings.nai.promptStyle === 'anima'
-    ? 'Anima 下插件不注入任何内置质量词,这一串完全由你定。它拼在整个 tag 串最前(整体顺序:质量/年代词 → 画师串 → 画面 tag)。画师串里设置了质量词时,会用画师串那份,这里的不生效;两处都留空就是不追加。'
+  return isSingleStringPromptStyle(settings.nai.promptStyle)
+    ? '单串风格（Anima / 自然语言）下插件不注入任何内置质量词,这一串完全由你定。它拼在整个提示词最前(整体顺序:质量/年代词 → 画师串 → 画面内容)。画师串里设置了质量词时,会用画师串那份,这里的不生效;两处都留空就是不追加。'
     : '拼在画面 tag 之后(整体顺序:画师串 → 画面 tag → 质量词)。画师串里设置了质量词时,会用画师串那份,这里的不生效。';
 }
 
-/** 画师串绑定级的同一件事:留空时跟到哪一级,Anima 下末级是「不追加」。 */
+/** 画师串绑定级的同一件事:留空时跟到哪一级,单串风格下末级是「不追加」。 */
 function qualityHintArtistBound(): string {
-  return settings.nai.promptStyle === 'anima'
-    ? '这份质量词随当前画师串一起切换,拼在整个 tag 串最前(质量/年代词 → 画师串 → 画面 tag)。留空 = 用渠道级设置(渠道级也留空,则 Anima 下不追加任何前缀)。'
+  return isSingleStringPromptStyle(settings.nai.promptStyle)
+    ? '这份质量词随当前画师串一起切换,拼在整个提示词最前(质量/年代词 → 画师串 → 画面内容)。留空 = 用渠道级设置(渠道级也留空,则单串风格下不追加任何前缀)。'
     : '这份质量词随当前画师串一起切换。留空 = 用渠道级设置(渠道级也留空,则按模型取官方词)。';
 }
 
@@ -381,10 +383,12 @@ const CHANNEL_PROMPT_TARGETS: NaiPromptTarget[] = [
     get hint() {
       return qualityHintChannel();
     },
-    // Anima 下末级回落是空串(插件不注入内置词),弹窗预填也就得是空的,否则等于
+    // 单串风格下末级回落是空串(插件不注入内置词),弹窗预填也就得是空的,否则等于
     // 把「其实没生效的 NAI 官方词」当成当前值摆在用户面前。
     fallback: () =>
-      settings.nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(settings.nai.model),
+      isSingleStringPromptStyle(settings.nai.promptStyle)
+        ? ''
+        : naiDefaultQualityTags(settings.nai.model),
     read: () => settings.nai.qualityTags,
     write: v => (settings.nai.qualityTags = v),
   },
@@ -416,7 +420,9 @@ const artistBoundTargets = computed<NaiPromptTarget[]>(() => {
         : qualityHintArtistBound(),
       fallback: () =>
         settings.nai.qualityTags.trim() ||
-        (settings.nai.promptStyle === 'anima' ? '' : naiDefaultQualityTags(settings.nai.model)),
+        (isSingleStringPromptStyle(settings.nai.promptStyle)
+          ? ''
+          : naiDefaultQualityTags(settings.nai.model)),
       read: () => a.quality,
       write: v => (a.quality = v),
     },
@@ -496,13 +502,16 @@ const modelSel = computed<string>({
   },
 });
 
-/** 提示词风格:nai = NAI 原生(Base + Character Prompts),anima = 单串(自然语言为主)。
- *  同一层 get/set 搭桥,写入前归一化,免得下拉给出非法值时字段被写成脏值。 */
+/** 提示词风格:nai = NAI 原生(Base + Character Prompts),anima = 单串(自然语言为主),
+ *  prose = 自然语言单串(纯描述,无 tag)。同一层 get/set 搭桥,写入前归一化走
+ *  normalizePromptStyle(白名单与 settings 同源),免得下拉给出非法值时字段被写成脏值。 */
 const isAnimaStyle = computed(() => settings.nai.promptStyle === 'anima');
+const isProseStyle = computed(() => settings.nai.promptStyle === 'prose');
+const isSingleStringStyle = computed(() => isSingleStringPromptStyle(settings.nai.promptStyle));
 const promptStyleSel = computed<string>({
   get: () => settings.nai.promptStyle,
   set: v => {
-    settings.nai.promptStyle = v === 'anima' ? 'anima' : 'nai';
+    settings.nai.promptStyle = normalizePromptStyle(v);
   },
 });
 
@@ -1157,16 +1166,22 @@ async function removeVibe(vibe: NaiVibe) {
           />
         </div>
         <p class="bbi-field-hint">
-          只换提示词的写法与输出结构，请求协议不变（两种都走 NAI 的 generate-image）。
+          只换提示词的写法与输出结构，请求协议不变（三种都走 NAI 的 generate-image）。
           Anima 风格为「单串输出、自然语言为主体、角色外貌全部写进主体、不产出 characters」，
-          给后端跑 Anima（Qwen 链路）的 NAI 兼容站使用。
+          给后端跑 Anima（Qwen 链路）的 NAI 兼容站使用；自然语言风格同样是单串，但连 tag 都不写
+          ——提示词是一整段连贯英文描述（首词为安全档 safe/sensitive/nsfw/explicit），也不产出
+          characters，适合吃纯自然语言的出口。
         </p>
 
-        <label class="bbi-switch-row">
+        <label v-if="!isProseStyle" class="bbi-switch-row">
           <span class="bbi-field-label">生成自然语言</span>
           <input v-model="settings.nai.naturalLanguage" type="checkbox" class="bbi-checkbox" />
         </label>
-        <p v-if="isAnimaStyle" class="bbi-field-hint">
+        <p v-if="isProseStyle" class="bbi-field-hint">
+          自然语言风格下整条提示词本身就是一段英文描述，这个开关不起作用，已隐藏；
+          切回其余风格后照常生效。
+        </p>
+        <p v-else-if="isAnimaStyle" class="bbi-field-hint">
           开:在 tag 串后追加一段英文描述,关系、相对位置、景别与光线主要靠它补;关:只出 tag,
           这些内容压回 1–4 词的短 tag。提示词规范与思维链里都写了条件段,改开关即可,不用动文本。
         </p>
@@ -1237,13 +1252,13 @@ async function removeVibe(vibe: NaiVibe) {
           锁定后每张图都按该方向出,自动 tag 也按这个画幅构图。正文里已记下的方向不会被改写,改回「自动」即恢复。
         </p>
 
-        <template v-if="isAnimaStyle">
+        <template v-if="isSingleStringStyle">
           <label class="bbi-switch-row">
             <span class="bbi-field-label">尺寸吸附到网关三档</span>
             <input v-model="settings.nai.sizeSnap" type="checkbox" class="bbi-checkbox" />
           </label>
           <p class="bbi-field-hint">
-            Anima 兼容站会把尺寸按宽高比吸附成三档:竖 920×1536、方 1024×1024、横 1536×920。
+            Anima 等单串兼容站会把尺寸按宽高比吸附成三档:竖 920×1536、方 1024×1024、横 1536×920。
             它不认别的尺寸,你配 1536×1152(比 1.333)会被判成方图、白白丢掉宽图——开启后本地先吸附,
             面板填的与实际拿到的才对得上。关闭则原样下发,由网关自行处理。
           </p>
