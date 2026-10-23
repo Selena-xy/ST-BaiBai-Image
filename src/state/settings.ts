@@ -1156,9 +1156,47 @@ export const DEFAULT_ANIMA_SPEC = `【Anima 提示词规范】
     有领衬衫、圆领 T 恤、无领衬衣三种东西。同一套服装整楼沿用同一串词(见思考清单 C 段),
     不要换个说法重写一遍;镜头外看不见的部件可以省,但省略不等于脱掉。
 
-{{#nl}}nl(JSON 的 nl 键):用连贯的自然语言把这一格写清楚,与 tag 互补而不是复述:
-主句写主体在做什么、和谁互动;随后补外貌、服装、彼此相对位置(左/右、前/后)与朝向;
-最后写镜头景别、光线时间与色调氛围。Anima 读自然语言远强于读词堆,但过短的 prompt 会出意外结果,
+表情、互动与镜头词表(第 16 条词表的强度展开与落词补充;从这里取词,别自造):
+- 情绪三级(同维度只取一级,按剧情强度挑;眼/嘴/脸色各自独立落词):
+  · 愉快:light smile, smile / blush / grin, open mouth
+  · 害羞:looking away, blush / averting eyes, parted lips, nose blush / closed eyes, wavy mouth, full-face blush
+  · 惊讶:wide-eyed, parted lips / open mouth, raised eyebrows
+  · 愤怒:narrowed eyes, frown / glaring, clenched teeth / shouting, open mouth
+  · 悲伤:sad, looking down / teary eyes, trembling lips / crying, streaming tears
+  · 恐惧:worried / wide-eyed, teary eyes / trembling, pale, cold sweat
+  · 紧张:looking away, nervous sweating / clenched hands, stiff
+  · 得意:narrowed eyes, smirk / hand on hip
+  · 温柔:gentle eyes, light smile / half-closed eyes
+  · 疲惫:half-closed eyes, tired / dark circles, yawning
+  · 决意:determined, closed mouth / clenched hand, standing straight
+  · 释然:relieved, light smile, closed eyes
+  面无表情也显式写 expressionless;又哭又笑这类混合情绪用 tears of joy 或 laughing 点明,否则删掉弱的一方。
+- 手部与姿态(给手一个任务、给身体一个姿势,禁止人物站桩):hand on own cheek, hand on own chin,
+  hand over own mouth, covering face, hand on own forehead, hand on own chest, clutching clothes,
+  clenched hand, pointing, waving, outstretched arm, reaching, holding <物件>, hand on hip,
+  crossed arms, arms behind back, hugging own arms, hand on wall, hand on table;
+  坐姿 sitting on chair / sitting on floor / seiza / crossed legs / knees up;卧姿 lying on back / on side / on stomach。
+- 跨人互动只写带施受的形态(每个接触只写一次,进公共槽的核心互动或施者的角色行):
+  hand on another's cheek, hand on another's shoulder, hand on another's head, hand on another's waist,
+  hugging another's waist, arms around another, holding hands, interlocked fingers,
+  head on another's shoulder, leaning on another;禁止裸写 touching、grabbing 这类无指向词。
+- 景别裁剪表(「身体 tag 与景别一致」的展开;画面外的一律删,写了模型会硬塞回画面):
+  · close-up / portrait:只留头颈肩,删胸部以下的服装、体型、鞋袜与下装;
+  · upper body:到腰,删鞋袜、下装下摆与腿部;
+  · cowboy shot:到大腿中段,删小腿与鞋袜;
+  · full body:全身;wide shot 里人物很小,删瞳色、痣与表情细节,只留发色、服装主色与姿态;
+  · from behind:删瞳色、嘴部表情与胸前服装细节,保留发型、背部服装与手部动作。
+- 镜头类 tag(景别、视角、焦点、镜头效果)统一收在串尾,按「景别 → 视角 → 焦点 → 效果」排列;
+  效果词从 depth of field, blurry background, bokeh, lens flare, motion blur, soft focus, vignetting 里挑 0~3 个。
+- 背景词量跟着镜头走:交代场景的全景(wide shot)环境词给足,中景只留关键物件,特写只留光源与虚化色块
+  —— 特写里堆一串环境 tag 只会把背景硬塞回画面。
+
+{{#nl}}nl(JSON 的 nl 键):用连贯的自然语言把这一格写清楚,与 tag 互补而不是复述,四句式骨架:
+句 1 景别 + 谁在画面哪一侧;句 2 动作与空间关系(谁拿着什么、什么东西落在哪、接触发生在谁与谁之间);
+句 3 纵深(前景虚化物 → 中景人物 → 远景墙/窗/天空,至少写两层);句 4 光线方向与色调
+(warm light from the left, cool shadows on the right)。一句一个主语、一句不超过 25 个英文词;
+用外观指代人(the silver-haired girl),不用连串代词;只写看得见的东西,全部肯定句。
+Anima 读自然语言远强于读词堆,但过短的 prompt 会出意外结果,
 纯自然语言写法要写足两句以上。语言一律用 English 书写,即使正文和你自己的思考是中文 ——
 生图模型读英文可靠得多,非英文句子还要多花几倍 token 挤占共享的提示词预算。
 角色名与作品名按标准英文大小写书写,正文里的中文名照抄原样(见姓名一致性)。
@@ -1293,12 +1331,23 @@ E. 选段
    - 优先选择突出玩家主角或主要角色的画面,看点是他们的表情、状态、行动与关系,不要求他们每张都同框;不以有无档案或是否有名字给候选加减分。
    - 先确定本图要突出的主体与核心互动,再决定谁入镜。在不损失这些内容的前提下,优先不带无关在场者的构图;必要的无名互动对象照常保留,不为少一个人裁断核心动作。人群同样不因正文提到就必须入画,若人群本身承载核心互动则保留。
    - 按视觉明确度、剧情重要度、动作完整度、与其他候选的差异度排序,并遵守任务协议给出的最少～最多数量:下限大于 0 时从较次但仍可见的候选中补足;达到下限后只继续选择足够强且彼此明显不同的画面,不要用同一事件的相邻动作或不同镜头凑近上限。
+   - 多张图按「建立 → 动作高点 → 反应余韵」的节奏搭配:首张可交代环境与站位,中段给动作或情绪的峰值,尾张给反应或余韵;静态对话为主的楼用镜头补位(正反打、物件特写、环境插入)代替人物摆拍。本轮各张景别彼此不同,首张不与上一楼最后一张同景别(上一楼的镜头就写在上下文楼层已有的 bbi_image 里,读它)。
    - 给每张入选图选定 P编号:让画面所需事实刚刚完整成立、且尚未切换到下一场景的位置。最后写出选定的 P 列表。
    - 数量在这里就要卡死:写出 P 列表之前先数一遍,多于上限就当场砍到上限再往下走。第二层只为最终入选的 P 写块,绝不允许先超额写完几块、再到第三层发现超限回头删——那几块是白写的,而且第三层只核对、不改决定。
 
 第二层|逐张图槽位块(E 选定的每个 P 各写一块,不得合并、不得跨图共用一份)
 
 Anima 是单串输出:一张图 = 一条 tag 串{{#nl}} + 一条 nl{{/nl}} + 一个 size。这里没有 Base 与角色块之分:所有人共享同一条串,归属靠邻接绑定。所以一块里先写公共槽,再按从左到右、从上到下的顺序给每个本图可见的个体各写一行角色行——这个顺序就是 tag 串里各段的先后。角色行与人物有没有档案无关:【一次性】角色入画时同样各写一行,镜头外的人不写行;入画的人群在公共槽的人数里算清、在串里作为整体写一次。
+
+常用机位速查(填公共槽与角色行时可参考这些成型的搭配;按正文瞬间选,不是强制清单):
+- 正反打(对话):两张各写一人,solo focus, three quarter view, looking at another,一人占左一人占右、视线相对,轴线不换;
+- 过肩(注视):from behind + looking at another,前景只留一人肩与后脑,对面的人清晰;
+- 递物/交换:hand focus + outstretched hand,两只手在画面中央相遇;
+- 并坐/并肩:side-by-side + sitting(或 standing), from side,各自的手与视线给不同方向;
+- 回头一瞥:looking back, upper body, from behind,光从后方勾出发丝边缘;
+- 手部特写(关键动作):extreme close-up, hand focus,背景虚化成色块;
+- 俯拍孤立:from above, wide shot,人物缩在画面一角,大面积留白;
+- 剪影(离别/悬疑):silhouette, backlighting,面部细节全部删掉。
 
 ■ P<编号>|公共槽
   安全档:<safe / sensitive / nsfw / explicit,只写一个,判据见后端规范>
@@ -1337,6 +1386,8 @@ Anima 是单串输出:一张图 = 一条 tag 串{{#nl}} + 一条 nl{{/nl}} + 一
 这一层只逐张核对下面几条,每点写一句结论即可。<thinking> 里禁止出现任何最终答案的草稿——不写完整 tag 串、{{#nl}}不写完整 nl 句、{{/nl}}更不要写出 JSON 对象或 "JSON:" 之类的标题。答案只在 </thinking> 之后出现一次,在思考里先写一遍等于把整份输出付两遍钱。核对完直接闭合 </thinking> 并输出 JSON:
    - 每张图的 tag 逐槽核对过:安全档、人数、景别、场景、环境光、多人画面的核心互动,以及每个角色的身份、固定外貌、可见服装、表情、视线、个人动作、相对位置,每一项都能在 tag 里找到对应的词,环境光不许漏(光源/时间/色调至少落一个具体词)。{{#nl}}nl 与 tag 描述同一画面,且所有 nl 一律用英文写——正文和上面的思考是中文也不例外,中文 nl 会被生图模型读得更差,还要多花几倍 token;角色名是唯一例外:名字逐字对应档案/正文原名(中文名写中文),没有任何音译或变体。{{/nl}}{{^nl}}本次只输出 position 与 tag:没有 nl 键,也没有把自然语言句子混进 tag 串;原本交给 nl 的关系、相对位置、景别、光线与色调都落成了短 tag。{{/nl}}
    - **绑定是否成立**:多人同框时,服装、手持物、动作这些容易串位的属性都用 X on Y 或邻接写法绑到了正确的人身上,没有一串裸服装词或裸动作词飘在两个人中间;**甲对乙做的动作**有没有被误绑到甲的锚点上(那会画成甲对自己做)、或误绑到乙的锚点上(那会画成乙自己动手、甲的手消失)——这类跨人接触是不是都写成了 hand on another's <部位>;**有没有哪个短语里叠了两个 on**(锚点词与绑定短语都只准出现一个 on,叠了模型就会把两个 on 都当归属读);每个在场角色都有自己那一段的外貌描述,没有谁只有名字没有外貌;整楼同一角色的锚点词是不是同一个。
+   - **同场景连续性**:上下文楼层里已有的 <bbi_image> 就是本场景之前的镜头 —— 读它们:光源方向与冷暖没有无端反转(壁炉在左就一直从左打,除非正文写了点灯、天亮这类光线变化);同一场景里两人的左右站位(轴线)没有互换,除非正文写了走位换位;本轮各张的景别彼此不同,且第一张不与上一楼最后一张同景别。
+   - **互斥标签核对**:closed eyes 旁边没有视线词(looking at viewer / eye contact / eye focus);facing away / from behind 没有与正脸直视的要求同现;人数计数与 solo 不打架;同一人同一部位没有两件服装,short hair 与 long hair 没有并存;night 没有 sunlight;景别只有一个。又哭又笑这类混合情绪要么用 tears of joy / laughing 点明,要么删掉弱的一方。
    - 每个剧情 tag 都能追溯到正文/设定;地形、地面、道路、天气和环境状态 tag 没依据就删除。
    - 每个角色都各有一个表情词和一个视线词,而且**视线词旁边必须配一个身体朝向/镜头方位词**(back view、profile、from behind 这类),正文写了「背对」「侧过脸」而 tag 里没有对应朝向词就是漏了;没有谁只有动作没有表情;多人同框时两人的相对位置(左/右、前/后)落成了 tag;没有 school uniform、pantyhose 这类被简写掉的笼统词;没有哪件服装的视觉指纹缺了领型、材质或长度(裙装/下装/长外套);没有哪个角色的服装或动作只写在槽位{{#nl}}或 nl {{/nl}}里却没进 tag。
    - 这一层只核对、不改决定:发现问题就在落 tag 时直接改对,不要在思考里写出「超限,需精简」「让位」「改为」这类修订过程。张数在 E 段就已经定死,这里不该再变。

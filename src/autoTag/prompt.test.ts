@@ -1322,6 +1322,13 @@ describe('NAI「生成自然语言」开关与渠道画幅锁', () => {
       expect(messages.some(m => m.content.includes(NAI_SPEC_MARK))).toBe(false);
       expect(spec).toContain('单串输出');
       expect(thinking).toContain('单串输出');
+      // 0.5.1 吸收的世界书精华段(词表/机位/连续性/互斥),nl 开侧须齐全
+      expect(spec).toContain('表情、互动与镜头词表');
+      expect(spec).toContain('四句式骨架');
+      expect(thinking).toContain('常用机位速查');
+      expect(thinking).toContain('同场景连续性');
+      expect(thinking).toContain('互斥标签核对');
+      expect(thinking).toContain('建立 → 动作高点 → 反应余韵');
       // 示例里的 negative 键也不留(anima 站不接收负面词)
       expect(pick(messages, CONTRACT_MARK)).not.toContain('"negative"');
 
