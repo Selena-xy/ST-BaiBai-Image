@@ -525,12 +525,48 @@ export interface ExcludesSettings {
  * 编号无效、特征绑定、共有特征一次、场景别抢主体——本地模型多人图串味的主因就是这些。
  */
 export const DEFAULT_COMFY_SPEC = `【ComfyUI 提示词规范】
-你输出的画面提示词会被直接填入 ComfyUI 工作流。
+你输出的画面提示词会被直接填入 ComfyUI 工作流。工作流已经把画质锚点固定在正向前缀里，
+你只负责画面内容本身。
 
-tag（JSON 的 tag 键）：danbooru 短 tag——英文小写、逗号分隔的关键词串，多词用空格连接（不要用下划线），例如：
-1girl, long hair, school uniform, sitting by window, classroom, warm sunlight
-从重要到次要排列：人数/主体 → 镜头构图 → 外貌 → 服饰 → 动作姿态 → 表情视线 → 场景 → 光线氛围；单个画面控制在 40 个 tag 以内。
-动作姿态内部再排：本画面核心动作（谁做了什么、身体部位接触了什么）必须是动作区第一条独立短 tag；辅助姿态（坐着、站着、跪着等）排后面。同一动作词不得重复写两遍。
+tag（JSON 的 tag 键）：英文逗号分隔串，整体控制在 120 词以内，按下面三段顺序排列，
+三段缺一段就是不合格输出：
+
+═══ 第一段 · 结构化 tag（画面骨架） ═══
+人数/构图/景别 → 人物外貌锚点 → 服装单品（带材质/版型）→ 环境 → 光影。
+英文小写，多词用空格连接（不要用下划线），例如：
+1girl, solo, full body, standing, long silver hair, red eyes, white sleeveless
+cotton dress, classroom, window seat, soft afternoon sunlight
+动作区排法：本画面核心动作（谁做了什么、身体部位接触了什么）必须是动作区第一条独立短 tag；
+辅助姿态（坐着、站着、跪着等）排后面。同一动作词不得重复写两遍。
+
+═══ 第二段 · 服装约束散文（强制，不可省略） ═══
+用一到两句完整英文，把这一张图的服装写死：版型、穿法、长度、材质、颜色。
+起句用 She is dressed / He is dressed / They are dressed，紧接第一段之后。
+
+这一段必须含至少两个「结构词」，结构词是本链路压住模型魔改服装的唯一有效手段：
+  tucked into（塞进裙腰/裤腰）       reaches the waist（下摆到腰）
+  A-line（A 字形）                   falls to just below the knee（垂到膝下）
+  knee-length（及膝）                midi（及小腿中部）
+  buttoned to the collar（扣到领口）  high-waisted（高腰）
+
+为什么必须写：只堆 tag 时，模型按训练集统计先验自己补服装——写 blue pleated skirt
+会给你超短裙，写 white shirt 会给你露脐短款，因为训练数据里这个组合大多长那样。
+散文把"版型+穿法+长度"组织成一句连贯描述，是唯一能让模型照做的写法。
+实测对比：只写 knee-length 时裙长停在膝上 10cm；写成 "a long A-line blue pleated
+skirt that falls to just below the knee" 才真正压到膝下。
+
+═══ 第三段 · 逆向词（强制，至少 3 个） ═══
+以 no 开头的短句，只写本图最容易跑偏的项，逗号分隔，放在 tag 串最末。
+例如：no hair accessories, no crop top, no bare midriff, no miniskirt
+
+为什么有效：本链路的文本编码器是 LLM 类（Qwen 系），能理解否定句——这与 SD1.5 时代
+「否定词不生效」的旧经验相反。实测 no hair accessories 能压掉凭空出现的发圈，
+但成功率约五成，所以要用两个以上的具体物件名叠加，而不是一个笼统词：
+写 no hair ribbon, no hair tie, no hair band，比写 no hair accessories 稳。
+
+⚠ 三段都要只写正面画面事实，不得借逆向词去否定正文已成立的内容：
+正文写她在戴发饰，就不许写 no hair accessories；正文写她穿短裙，就不许写 no miniskirt。
+
 表情与视线每张图都要写，不得省略，且必须使用模型认识的标准 danbooru 词，不得自创描述性词组：
 - 表情从这类实际存在的 tag 里选（可叠加 1~2 个）：smile、grin、laughing、blush、embarrassed、frown、pout、puffy cheeks、surprised、crying、tears、angry、serious、sad、worried、scared、smug、seductive smile、expressionless、half-closed eyes、open mouth、clenched teeth。
 - 视线选一个：looking at viewer、looking at another、looking away、looking down、looking up、looking back、closed eyes 之外不要另造。
@@ -597,16 +633,29 @@ tag（JSON 的 tag 键）：danbooru 短 tag——英文小写、逗号分隔的
 两人同框不等于必须横屏。方向必须与 tag 里的镜头词一致（wide shot 通常配 landscape，close-up / upper body 通常配 portrait）。
 
 通用要求：
-- 不写质量词（masterpiece、best quality 之类）、不写负面内容。
+- 不写质量词：画质锚点（masterpiece、best quality、score_9、year 2025、newest、
+  highres、absurdres、very aesthetic、novel illustration 之类）由工作流的前缀统一注入，
+  tag 里再写一遍等于同一个概念被加了两遍权，只会把画面推向过度精致、丢失个性。
+- 三段之外的负面内容不写（本图专用的 no 逆向词属第三段，照写）。
 - 一律使用英文。`;
 
-/** {{nl}} 宏的展开内容(「生成自然语言」开启时);关闭时宏展开为空串。 */
+/**
+ * {{nl}} 宏的展开内容(「生成自然语言」开启时);关闭时宏展开为空串。
+ *
+ * ⚠ 与 tag 的接口(2026-10 起):自定义工作流把 %prompt% 与 %nl% 拼进同一个 CLIP
+ * 文本编码节点,所以 nl 是 tag 的**续写**而不是另一份画面描述——tag 末尾的服装约束
+ * 散文第三段之后直接接 nl,读起来必须是一段话。也因此 nl 末句不要再收尾总结,
+ * 直接把重心挪到动作与氛围上。
+ */
 export const DEFAULT_COMFY_NL_SPEC = `nl（JSON 的 nl 键）：自然语言——连贯完整的英文句子描述同一画面（单人一到三句；多人按下面结构组织），例如：
 A girl with long black hair in a school uniform sits by the classroom window, warm sunlight falling across her desk.
 nl 与 tag 描述的是同一画面：tag 覆盖实体与属性关键词，nl 写连贯叙述，先主体动作、再环境氛围。
+nl 与 tag 拼在同一个文本编码节点里（%prompt% 之后紧接 %nl%），所以 nl 是 tag 的**续写**而不是另一份画面描述：不要重述 tag 已经写过的外貌与服装单品，把重心放在动作、身体接触、表情神态、空间关系与光线氛围上，读起来要像接着 tag 末尾那句话往下说。
+服装兜底（强制）：nl 里必须再用一句话复述本图的服装约束——版型、穿法、长度各说到，用词与 tag 的服装约束散文一致，不换词不改写。原因是同一段提示词里越靠后的描述在语义聚合时越容易被前面的 tag 稀释，同一份约束在 tag 段与 nl 段各出现一次，压住模型改服装的成功率显著高于只写一次。复述要用完整句子，不要退回 tag 写法：写 The shirt is tucked into a high-waisted skirt, and the skirt falls to just below the knee.，不要写 shirt tucked into skirt, knee-length。
 核心动作要写到「谁的身体部位 + 接触点」的具体程度（如 her knee pressing against the tented blanket），姿态词（kneeling、sitting）只是辅助，不得拿姿态替代核心动作。
 多人画面按三段组织：先一句总起（人数 + as the main focus + 构图，把主体锁在角色上）→ 再每人一句分述，先主动方后被动方 → 最后一句环境氛围，以 blurred in the background 收尾。
 每句分述都要带上该角色的**区分性称谓**（the green-haired girl with green eyes ...）——模型不跨句记忆，用 she/they 这类指代会丢失配对；tag 里的绑定写法（谁穿什么颜色、谁在做什么动作）在这里用完整句子再写一遍，即使 tag 被重排也能兜底。
+多人画面禁止用左右方位词（on the left / on the right）做区分：这批模型对方位词的响应是「把两个人都画到指定位置」，而不是「把这个人放到那里」，结果是身体错位、肢体串在一起。区分角色只靠发色瞳色这类外貌锚点，位置交给构图词。
 区分性称谓 = 足以把此人和同框其他人分开的最短说法（发色 + 瞳色通常就够），不是把他的整串固定外貌重新念一遍：写 the black-haired girl with blue eyes，不要写 1girl, long black hair, blue eyes, petite, white dress 这种把 tag 串塞进句子的写法——那会让模型以为画面里有多个同样的人。
 多人 nl 示例（与上面 tag 示例是同一画面）：
 Two girls as the main focus, medium shot, in a park at sunset. The black-haired girl with blue eyes wears a white dress and waves at the viewer. The silver-haired girl with red eyes wears a red dress and eats a skewer of dango. Warm sunset light across the park, the trees softly blurred in the background.`;
@@ -686,7 +735,10 @@ NAI 对 danbooru 体系理解最好：人物多的画面务必写清数量 tag�
 两人同框不等于必须横屏。方向必须与 tag 里的镜头词一致（wide shot 通常配 landscape，close-up / upper body 通常配 portrait）。
 
 通用要求：
-- 不写质量词（masterpiece、best quality 之类，由系统按模型自动附加）、不写负面内容。
+- 不写质量词：画质锚点（masterpiece、best quality、score_9、year 2025、newest、
+  highres、absurdres、very aesthetic、novel illustration 之类）由工作流的前缀统一注入，
+  tag 里再写一遍等于同一个概念被加了两遍权，只会把画面推向过度精致、丢失个性。
+- 三段之外的负面内容不写（本图专用的 no 逆向词属第三段，照写）。
 - 一律使用英文。`;
 
 /**
@@ -699,6 +751,9 @@ NAI 对 danbooru 体系理解最好：人物多的画面务必写清数量 tag�
  * 身份 tag 转义与 negative 条件自查只属 comfy,显式 NSFW 解剖落点只属 nai;
  * V5 那份的第二层是另一套结构(Base 块 + 每角色块),见 DEFAULT_NAI_V5_THINKING。
  * ⚠ 眼下实际在用的只有 comfy 与 naiV5 两份:nai 那份随 4.5 以下模型一起下线(无 UI 入口)。
+ * ⚠ comfy 那份自 2026-10 起多了两个槽位(服装约束句 / 逆向词)与三条自查(见下),
+ * 因为 ComfyUI 侧走的是自定义工作流:tag 与 nl 拼进同一个 CLIP 编码节点,模型会按
+ * 训练集先验魔改服装,只有「结构词散文 + no 逆向词」这两手能压住。
  */
 export const DEFAULT_COMFY_THINKING = `【输出前思考清单】
 先在 <thinking> 与 </thinking> 之间按下面顺序过一遍，思考结束后再输出最终 JSON。除这一个 <thinking> 块与最终 JSON 外，不得输出任何内容，也不得开启第二个 <thinking> 块。
@@ -722,6 +777,7 @@ B. 角色清点与建档（具体建档字段与写法见任务协议，这里�
 C. 服装时间线（每个在场角色一行：从 P 几起穿的是什么）
    - 按正文 P 位置维护每个角色的临时服装：正文未明确初始穿着时合理决定一次；没有穿脱、换装、衣物损坏或场景/时间跳跃就沿用上一状态，明确变化后从对应 P 位置起更新。
    - 每套服装冻结一份「视觉指纹」（版型/剪裁 + 主色 + 关键部件，裤袜含颜色与透明度，具体要求见任务协议），相同状态全楼复用同一份，不要写成 school uniform、dress、pantyhose 这类模型会自行重新设计的孤立词。
+   - 同一行里再定出「约束句骨架」：这套衣服用哪两个结构词钉死长度与穿法（tucked into / reaches the waist / A-line / falls to just below the knee / knee-length / midi / buttoned to the collar / high-waisted）。这份骨架全楼复用，落笔时写进 tag 的服装约束散文，nl 里再复述一次。
 
 D. 时代与世界观（一次判断，全楼通用）
    - 定一套具体、自洽的时代/文明/视觉体系并全楼沿用：有明确设定就严格遵循，证据少也要主动选一个，不得退回中性服装或默认现代都市。落实到服装版型、材质、配饰和有依据的建筑器物上。
@@ -735,22 +791,25 @@ E. 选段
 
 第二层｜逐张图槽位块（E 选定的每个 P 各写一块，不得合并、不得跨图共用一份）
 
-每张图各写一块，把下面每个槽位都写出取值。行文形态随你，但七个槽位一个都不能少——漏掉任何一个都会让最终 tag 缺一块。
+每张图各写一块，把下面每个槽位都写出取值。行文形态随你，但九个槽位一个都不能少——漏掉任何一个都会让最终 tag 缺一块。
 
 ■ P<编号>
   人物：<人数 tag + 在场角色名；无人物画面写 no humans>
   核心动作：<谁的哪个身体部位接触了什么，先用中文点明接触点，再给英文 tag>
   景别：<close-up / upper body / medium shot / full body / wide shot 中只选一个，且必须完整容纳上面的接触点>
   角色行（每个在场角色各一行）：<角色名>｜表情｜视线｜本镜头可见服装｜临时状态｜个人动作
+  服装约束句：<英文完整句，She is dressed / He is dressed 起句，含 C 段选定的两个结构词>
+  逆向词：<至少 3 个 no 开头的短句，只写本图最容易跑偏的项>
   场景：<地点 + 画面里实际可见的关键道具>
   环境光：<光源 + 时间 + 色调>
   size：<portrait / landscape>
 
-槽位填写要求（槽位值直接写你最终要放进 tag 的英文词；确实不适用的槽位写 "-"，但核心动作、景别、表情、视线、场景、环境光、size 七项永远不得为 "-"）：
+槽位填写要求（槽位值直接写你最终要放进 tag 的英文词；确实不适用的槽位写 "-"，但核心动作、景别、服装约束句、逆向词、表情、视线、场景、环境光、size 九项永远不得为 "-"）：
    - 每个槽位只写最终决定，一次定死。判断标准很简单：一个槽位在你的思考里只准出现一次取值。写下 size：portrait 之后就不许再提这个字段，写下表情：smile 之后也不许再讨论要不要改成别的。
    - 具体禁止这三种写法：带问号的自问（「landscape？」「用 blush？」）、并列候选（「expressionless 或 slight smile」）、写完再推翻（「用 A……不过 B 更好，改 A 为 B」）。心里比较完直接写结论，把比较过程留在心里。证据不足时按兜底口径直接定（size 拿不准写 portrait，服装细节不明就选一套常见且自洽的），定了就往下走。
    - 也不要在槽位里附上选择理由或对 danbooru 词表的检索过程（「looking ahead 不在标准列表」这类）——规范给了什么词，直接从里面挑一个填上。
    - 单一瞬间：一块只能是一次快门完整拍下的画面，不要把先后发生的多个动作、多个时间点或因果过程塞进同一块；剧情事实严格按正文，不编造人物、动作或人数。
+   - 服装约束句按 C 段骨架写完整英文句，两个结构词原样写进句子里；逆向词只填「本图不该出现、且正文也没写」的东西——正文写了她确实在戴发饰，就不许把 hair accessories 填进逆向词。
    - 表情与视线填后端规范给出的标准 danbooru 词，不写中文感受也不自创词组（想写「温柔地笑」就填 smile）；只能从规范列出的词里挑，规范没列的词一律不许用，拿不准就填 expressionless / looking at another。两项都不得留空，面无表情也要主动填 expressionless。多人画面每人各填一份，落 tag 时各自绑定，不得合并或裸写——裸写的表情只会落到一个人身上，另一人变成默认木脸。
    - 角色行是每个在场角色各一行，配角也要写全，不许只给主角写完整一行、配角用一句中文动作带过。每一行的表情与视线都必须各是一个独立的英文 danbooru 词：写成「看向另一侧、弯腰换鞋」这种中文短语等于这一行没有表情词，落 tag 时这个角色就会没有表情，被模型画成木脸。
    - 可见服装照 C 中该角色当前状态的视觉指纹逐件写全，只写本景别看得见的部件；镜头外不可见的部件可以省略，但省略不等于脱掉，后续重新可见且中间没有变化时必须恢复。槽位里不许退回 school uniform、dress、pantyhose 这种笼统孤立词——C 段定的是 navy school blazer 就写 navy school blazer，写笼统词等于让模型自己重新设计这套衣服，同一角色每张图都会换个款式。多人画面每人的服装各写各的，落 tag 时各自绑定：两人都穿校服但男女版型不同，裸写一个 school uniform 会让模型把裙子套到男生身上。
@@ -760,6 +819,10 @@ E. 选段
 
 这一层只逐张核对下面几条，每点写一句结论即可。<thinking> 里禁止出现任何最终答案的草稿——不写完整 tag 串、不写完整 nl 句、更不要写出 JSON 对象或 "JSON:" 之类的标题。答案只在 </thinking> 之后出现一次，在思考里先写一遍等于把整份输出付两遍钱。核对完直接闭合 </thinking> 并输出 JSON：
    - 每张图的 tag 覆盖了它自己那一块的全部非 "-" 槽位，没有漏掉表情、视线或环境光；要求 nl 时与 tag 描述同一画面。
+   - 每张图的 tag 里都有服装约束散文，且句中出现至少两个结构词（tucked into / reaches the waist / A-line / falls to just below the knee / knee-length / midi / buttoned to the collar / high-waisted）；一个结构词都没有就等于没写，回去把骨架补进句子。
+   - 每张图的 tag 串末尾都有至少 3 个 no 开头的逆向词，且全部是「正文没写、本图不该出现」的项；没有任何一个在否定正文已成立的事实。
+   - tag 里没有 masterpiece、best quality、score_9、year 2025、newest、highres、absurdres、very aesthetic、novel illustration 这类画质锚点——它们由工作流前缀统一注入，再写一遍只会让画面过度精致。
+   - nl 里再次复述了服装约束（版型、穿法、长度各说到），用词与 tag 的散文一致，不是另起一套说法。
    - 每个剧情 tag 都能追溯到正文/设定；地形、地面、道路、天气和环境状态 tag 没依据就删除。
    - 多人画面里服装、体型、物件、表情、视线和个人动作都已绑定到各自角色，没有散落的无主特征；每个在场角色的服装都在 tag 里实际出现了，没有谁的衣服只写在槽位里却没进 tag，也没有 school uniform、pantyhose 这类没主人的笼统孤立词；每个在场角色都各有一个绑定到自己的表情词和视线词，没有谁只有动作没有表情。
    - 没有 pale skin、white skin、fair skin 这类白皙肤色词混进任何一张图（角色库字段里有也跳过不抄）：默认肤色已经够白，写了会白得发灰失真；角色真是晒黑/深肤色时用的 tan、dark skin 不在此列。
